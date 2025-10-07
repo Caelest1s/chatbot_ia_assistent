@@ -32,9 +32,6 @@ def ask_gpt(question: str, user_id: int) -> tuple:
         historico.append({"role": "user", "content": question, "timestamp": datetime.now().isoformat()})
         logger.info(f"Histórico atualizado para o user_id {user_id}: {historico}")
 
-        # Depuração: Mostra o histórico antes da chamada
-        # print(f"Histórico enviado para a IA: {historico}")
-
         #Chama a API com o histórico completo
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
