@@ -33,7 +33,7 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 user_id BIGINT PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
+                nome VARCHAR(100) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -43,6 +43,17 @@ def init_db():
                 user_id BIGINT PRIMARY KEY REFERENCES usuarios(user_id),
                 conversas TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS servicos(
+                servico_id BIGINT PRIMARY KEY,
+                nome VARCHAR(100) NOT NULL,
+                descricao TEXT,
+                preco DECIMAL(8, 2) NOT NULL,
+                duracao_minutos INT,
+                ativo BOOLEAN DEFAULT TRUE
             );
         """)
 
