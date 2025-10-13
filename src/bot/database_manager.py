@@ -4,7 +4,7 @@ from psycopg2.extras import RealDictCursor
 import os
 import json
 from dotenv import load_dotenv
-from messages import MESSAGES
+from src.utils.messages import MESSAGES
 from datetime import datetime
 
 load_dotenv()

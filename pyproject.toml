@@ -1,0 +1,30 @@
+[project]
+name = "chatbot_ia_assistent"
+version = "0.1.0"
+description = "A Telegram bot with AI and database integration"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.32.5"
+    , "python-dotenv>=1.1.1"
+    , "openai>=2.0.0"
+    , "python-telegram-bot>=22.5"
+    , "psycopg2-binary>=2.9.10"
+    ,
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.4.2"
+    , "pytest-asyncio>=0.24.0"
+    ,
+]
+dev = []
+
+[tool.setuptools]
+packages = ["src.bot", "src.utils", "src.config"]
+
+[tool.setuptools.package-dir]
+"src.bot" = "src/bot"
+"src.utils" = "src/utils"
+"src.config" = "src/config"

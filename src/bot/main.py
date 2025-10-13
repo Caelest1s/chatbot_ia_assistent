@@ -4,8 +4,8 @@ import os # Para variaveis de ambiente
 from openai import OpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
-from database_manager import DatabaseManager
-from messages import MESSAGES
+from src.bot.database_manager import DatabaseManager
+from src.utils.messages import MESSAGES
 import logging
 from datetime import datetime
 
@@ -40,27 +40,27 @@ class TelegramBot:
         # Dicionário para armazenar o histórico em memória
         self.historico_por_usuario = {} # {user_id: [{"role": "...", "content": "...", "timestamp": "..."}]}
 
-        # Limite de mensagens no histórico em memória (ajustá vel para 30)
+        # Limite de mensagens no histórico em memória (ajustável para 30)
         self.max_historico_length = 10 # System + últimas (N-1) interações
 
     # Função para chamar a API do GPT com respostas curtas
     def ask_gpt(self, question: str, user_id: int) -> tuple:
-        """
-        Chama a API da OpenAI com a pergunta do usuário e gerencia o histórico em memória.
-        Salva apenas a mensagem do usuário no BD.
+        # """
+        # Chama a API da OpenAI com a pergunta do usuário e gerencia o histórico em memória.
+        # Salva apenas a mensagem do usuário no BD.
         
-        Args:
-            question (str): Pergunta do usuário.
-            user_id (int): ID do usuário.
+        # Args:
+            # question (str): Pergunta do usuário.
+            # user_id (int): ID do usuário.
         
-        Returns:
-            tuple: (resposta da IA, histórico atualizado).
-        """
+        # Returns:
+            # tuple: (resposta da IA, histórico atualizado).
+        # """
+        # Recupera ou inicializa o histórico do usuário
+        historico = self.historico_por_usuario.get(
+            user_id, [{"role": "system", "content": self.resposta_sucinta}]
+        )
         try:
-            # Recupera ou inicializa o histórico do usuário
-            historico = self.historico_por_usuario.get(
-                user_id, [{"role": "system", "content": self.resposta_sucinta}]
-            )
             historico.append({"role": "user", "content": question, "timestamp": datetime.now().isoformat()})
             logger.info(f"Histórico atualizado para o user_id {user_id}: {historico}")
 

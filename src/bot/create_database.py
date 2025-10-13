@@ -1,10 +1,7 @@
 import psycopg2
 from psycopg2 import OperationalError
-from dotenv import load_dotenv
+from src.config import settings_loader
 import os
-# from database_manager import get_connection
-
-load_dotenv()
 
 class CreateDatabase:
     def __init__(self):
@@ -15,6 +12,8 @@ class CreateDatabase:
         self.db_name = os.getenv('DB_NAME')
         self.db_password = os.getenv('DB_PASSWORD')
         self.db_port = os.getenv('DB_PORT')
+
+        print(f"Usuário do banco carregado: {self.db_user}")  # confirmação
 
     # Função para conectar ao banco de dados PostgreSQL
     def get_db_connection(self, db_name: str):
@@ -34,19 +33,20 @@ class CreateDatabase:
             print(f"Erro ao conectar ao banco PostgreSQL: {e}")
             raise
 
-    def create_database(self):
+    def create_database(self, db_name=None):
+        db_name = db_name or self.db_name # Usar o nome do banco principal se nenhum nome for fornecido
         try:
             conn = self.get_db_connection(self.database)
             conn.autocommit = True # Necessário para criar banco
             with conn.cursor() as cursor:
                 # Criar o banco bot_db se não existir
-                cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = %s;", (self.db_name,))
+                cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = %s;", (db_name,))
                 exists = cursor.fetchone()
                 if not exists:
-                    cursor.execute(f"CREATE DATABASE {self.db_name} OWNER {self.db_user};")
-                    print(f"Banco de dados '{self.db_name}' criado com sucesso.")
+                    cursor.execute(f"CREATE DATABASE {db_name} OWNER {self.db_user};")
+                    print(f"Banco de dados '{db_name}' criado com sucesso.")
                 else:
-                    print(f"Banco de dados '{self.db_name}' já existe.")
+                    print(f"Banco de dados '{db_name}' já existe.")
 
                 cursor.close()
                 conn.close()
@@ -132,6 +132,9 @@ class CreateDatabase:
 
 if __name__ == "__main__":
     db_manager = CreateDatabase()
+    db_test_name = os.getenv('DB_TEST_NAME')
+
     # db_manager.drop_database()
-    db_manager.create_database()
-    db_manager.create_tables()
+    db_manager.create_database(db_name=db_test_name)
+    # db_manager.db_name = db_test_name
+    # db_manager.create_tables()
