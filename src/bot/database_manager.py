@@ -1,13 +1,11 @@
 import psycopg2
 from psycopg2 import OperationalError
 from psycopg2.extras import RealDictCursor
-import os
-import json
-from dotenv import load_dotenv
-from src.utils.messages import MESSAGES
 from datetime import datetime
-
-load_dotenv()
+import json
+import os
+from src.config import load_settings
+from src.utils import MESSAGES
 
 class DatabaseManager:
     def __init__(self):

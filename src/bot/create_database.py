@@ -55,10 +55,11 @@ class CreateDatabase:
         except Exception as e:
             print(f"Erro ao criar o banco de dados: {e}")
 
-    def create_tables(self):
+    def create_tables(self, db_name=None):
+        db_name = db_name or self.db_name
         try:
             # Conectar ao banco de dados recém-criado
-            conn = self.get_db_connection(self.db_name)
+            conn = self.get_db_connection(db_name)
             cursor = conn.cursor()
             
             # Criar tabela de usuários
@@ -100,14 +101,15 @@ class CreateDatabase:
         except Exception as e:
             print(f"Erro ao criar tabelas no banco: {e}")
 
-    def drop_database(self):
+    def drop_database(self, db_name=None):
+        db_name = db_name or self.db_name
         try:
             conn = self.get_db_connection(self.database)
             conn.autocommit = True # Necessário para dropar banco
 
             with conn.cursor() as cursor:
                 # Dropar o banco de dados se existir
-                cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = %s;", (self.db_name,))
+                cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = %s;", (db_name,))
                 exists = cursor.fetchone()
 
                 if exists:
@@ -117,24 +119,29 @@ class CreateDatabase:
                         FROM pg_stat_activity
                         WHERE pg_stat_activity.datname = %s
                         AND pid <> pg_backend_pid();
-                        """, (self.db_name,))
-                    cursor.execute(f"DROP DATABASE {self.db_name};")
-                    print(f"Banco de dados '{self.db_name}' dropado com sucesso.")
+                        """, (db_name,))
+                    cursor.execute(f"DROP DATABASE {db_name};")
+                    print(f"Banco de dados '{db_name}' dropado com sucesso.")
                 else:
-                    print(f"Banco de dados '{self.db_name}' não existe.")
+                    print(f"Banco de dados '{db_name}' não existe.")
 
                 # cursor.close()
                 # conn.close()
         except OperationalError as e:
-            print(f"Erro ao dropar banco {self.db_name} PostgreSQL: {e}")
+            print(f"Erro ao dropar banco {db_name} PostgreSQL: {e}")
         except Exception as e:
             print(f"Erro ao dropar o banco de dados: {e}")
 
 if __name__ == "__main__":
     db_manager = CreateDatabase()
-    db_test_name = os.getenv('DB_TEST_NAME')
+    # MAIN_DB
+    db_manager.drop_database()
+    db_manager.create_database()
+    db_manager.create_tables()
 
-    # db_manager.drop_database()
-    db_manager.create_database(db_name=db_test_name)
+    # TEST_DB
+    # db_test_name = os.getenv('DB_TEST_NAME')
     # db_manager.db_name = db_test_name
-    # db_manager.create_tables()
+    # db_manager.drop_database(db_name=db_test_name)
+    # db_manager.create_database(db_name=db_test_name)
+    # db_manager.create_tables(db_name=db_test_name)

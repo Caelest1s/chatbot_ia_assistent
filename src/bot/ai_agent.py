@@ -1,11 +1,11 @@
 import requests
-from dotenv import load_dotenv
 import os # Para variaveis de ambiente 
+from src.config import settings_loader
 from openai import OpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from src.bot.database_manager import DatabaseManager
-from src.utils.messages import MESSAGES
+from src.utils import MESSAGES
 import logging
 from datetime import datetime
 
@@ -13,11 +13,9 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__) 
 
-class TelegramBot:
+class AIAgent:
     def __init__(self):
         # Inicializa o bot do Telegram com configurações, cliente OpenAI e histórico em memória.
-        # Configurações
-        load_dotenv()  # Carrega variáveis de ambiente do arquivo .env
         self.telegram_api_key = os.getenv('TELEGRAM_API_KEY')
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         self.resposta_sucinta = MESSAGES['RESPOSTA_SUCINTA']
@@ -43,19 +41,15 @@ class TelegramBot:
         # Limite de mensagens no histórico em memória (ajustável para 30)
         self.max_historico_length = 10 # System + últimas (N-1) interações
 
-    # Função para chamar a API do GPT com respostas curtas
     def ask_gpt(self, question: str, user_id: int) -> tuple:
-        # """
         # Chama a API da OpenAI com a pergunta do usuário e gerencia o histórico em memória.
         # Salva apenas a mensagem do usuário no BD.
-        
         # Args:
             # question (str): Pergunta do usuário.
             # user_id (int): ID do usuário.
-        
         # Returns:
             # tuple: (resposta da IA, histórico atualizado).
-        # """
+
         # Recupera ou inicializa o histórico do usuário
         historico = self.historico_por_usuario.get(
             user_id, [{"role": "system", "content": self.resposta_sucinta}]
@@ -126,8 +120,8 @@ class TelegramBot:
         self.historico_por_usuario[user_id] = [{"role": "system", "content": self.resposta_sucinta}] # Reseta o histórico na memória
         await update.message.reply_text('Conversação reiniciada. Pode perguntar algo novo!')
 
+    # Configura os handlers e inicia o bot
     def run(self):
-        # Configura os handlers e inicia o bot
         self.app.add_handler(CommandHandler('start', self.start))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.answer))
         self.app.add_handler(CommandHandler('reset', self.reset))
@@ -136,7 +130,7 @@ class TelegramBot:
 
 if __name__ == '__main__':
     try:
-        bot = TelegramBot()
+        bot = AIAgent()
         bot.run()
     except Exception as e:
         logger.error(f"Erro de configuração: {e}")

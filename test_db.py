@@ -1,8 +1,7 @@
 import psycopg2
-from dotenv import load_dotenv
 import os
+from src.config import load_settings
 
-load_dotenv()
 DB_HOST = os.getenv('DB_HOST')
 DB_NAME = os.getenv('DB_NAME')
 DB_USER = os.getenv('DB_USER')
