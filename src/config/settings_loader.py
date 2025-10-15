@@ -1,6 +1,6 @@
+import os
 from dotenv import load_dotenv
 from pathlib import Path
-import os
 
 def load_settings():
     # Caminho absoluto até o diretório base do projeto, do arquivo .env

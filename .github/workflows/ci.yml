@@ -1,0 +1,136 @@
+# ============================================================
+# 🚀 CI/CD PIPELINE — GUIA COMPLETO (comentado)
+# ============================================================
+# Este arquivo define um pipeline de integração contínua (CI)
+# para seu projeto Python com testes unitários, integração
+# e análise de qualidade de código (lint).
+
+# ✅ CI (Continuous Integration): garante que todo push/pull request
+# passe por testes automáticos antes de ser integrado.
+# ============================================================
+
+# name: CI Pipeline
+# ------------------------------------------------------------
+# Define o nome que aparecerá no GitHub Actions.
+# Você verá este nome na aba "Actions" do repositório.
+# ------------------------------------------------------------
+
+# on:
+#   push:
+#     branches: [ "main", "dev" ]
+#   pull_request:
+#     branches: [ "main", "dev" ]
+# ------------------------------------------------------------
+# 🔹 Define os gatilhos (triggers) do pipeline:
+# - Roda automaticamente quando houver:
+#   → push (commit enviado) para main ou dev
+#   → pull_request (solicitação de merge)
+# ------------------------------------------------------------
+# 💡 Dica: se quiser testar manualmente, adicione:
+# workflow_dispatch:  (permite clicar em “Run workflow” no GitHub)
+# ------------------------------------------------------------
+
+# jobs:
+#   build-and-test:
+#     runs-on: ubuntu-latest
+# ------------------------------------------------------------
+# 🔹 Define o *job principal*, chamado "build-and-test".
+# Ele roda em uma máquina virtual Linux (Ubuntu).
+# ------------------------------------------------------------
+
+#     services:
+#       postgres:
+#         image: postgres:16
+#         env:
+#           POSTGRES_USER: postgres
+#           POSTGRES_PASSWORD: postgres
+#           POSTGRES_DB: test_db
+#         ports: ['5432:5432']
+#         options: >-
+#           --health-cmd="pg_isready -U postgres"
+#           --health-interval=10s
+#           --health-timeout=5s
+#           --health-retries=5
+# ------------------------------------------------------------
+# 🗄️ Define um container PostgreSQL para testes de integração.
+# - Cria um banco de testes isolado na pipeline.
+# - É acessado pelo código através das variáveis abaixo.
+# ------------------------------------------------------------
+
+#     env:
+#       DB_HOST: localhost
+#       DB_USER: postgres
+#       DB_PASSWORD: postgres
+#       DB_PORT: 5432
+#       DATABASE: test_db
+#       OPENAI_API_KEY: fake_key
+#       TELEGRAM_API_KEY: fake_key
+# ------------------------------------------------------------
+# 🌍 Define as variáveis de ambiente disponíveis durante o job.
+# - Aqui você simula as chaves necessárias, como se fosse local.
+# ------------------------------------------------------------
+# 💡 Em produção, use GitHub Secrets (Settings → Secrets → Actions)
+#   e troque por:  ${{ secrets.OPENAI_API_KEY }}
+# ------------------------------------------------------------
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+# ------------------------------------------------------------
+# 🧾 Passo 1 — Clona o repositório para a máquina virtual
+# ------------------------------------------------------------
+
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.11"
+# ------------------------------------------------------------
+# 🐍 Passo 2 — Instala o Python 3.11 no ambiente de build
+# ------------------------------------------------------------
+
+#       - name: Install dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+#           pip install -r requirements.txt
+#           pip install pytest pytest-asyncio
+# ------------------------------------------------------------
+# 📦 Passo 3 — Instala dependências do projeto e de testes
+# ------------------------------------------------------------
+
+#       - name: Run unit tests
+#         run: pytest tests/unit -v --maxfail=1 --disable-warnings
+# ------------------------------------------------------------
+# 🧪 Passo 4 — Executa todos os testes unitários
+#   - "--maxfail=1": para ao primeiro erro
+#   - "--disable-warnings": oculta avisos desnecessários
+# ------------------------------------------------------------
+
+#       - name: Run integration tests
+#         run: pytest tests/integration -v --maxfail=1 --disable-warnings
+# ------------------------------------------------------------
+# 🔗 Passo 5 — Executa os testes de integração
+# ------------------------------------------------------------
+
+#       - name: Run lint
+#         run: |
+#           pip install flake8
+#           flake8 src tests --max-line-length=100
+# ------------------------------------------------------------
+# 🧹 Passo 6 — Análise de qualidade (Lint)
+# - Verifica se o código segue padrões de estilo (PEP8)
+# ------------------------------------------------------------
+
+# ============================================================
+# 💬 COMO USAR ESTE ARQUIVO:
+# ============================================================
+# 1️⃣ Para estudar — deixe tudo comentado
+# 2️⃣ Para ativar o pipeline — remova os '#' das linhas
+#     que desejar testar.
+#     Exemplo: primeiro ative só os testes unitários.
+# 3️⃣ Para executar manualmente — adicione:
+
+# on:
+#   workflow_dispatch:
+
+# e rode pela aba "Actions" do GitHub.
+# ============================================================
