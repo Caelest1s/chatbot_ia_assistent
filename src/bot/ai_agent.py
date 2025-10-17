@@ -1,7 +1,11 @@
 import requests
 import os # Para variaveis de ambiente 
 from src.config import settings_loader
-from openai import OpenAI
+
+from langchain_openai import ChatOpenAI
+from langchain.memory import ChatMessageHistory
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from src.bot.database_manager import DatabaseManager
@@ -25,8 +29,15 @@ class AIAgent:
         if not self.telegram_api_key or not self.openai_api_key:
             raise ValueError("Chaves de API (TELEGRAM ou OPENAI) não definidas.")
         
+        self.llm = ChatOpenAI(
+            api_key=self.openai_api_key,
+            model="gpt-3.5-turbo", # gpt-4o-mini
+            max_completion_tokens=100,
+            temperature=0.7
+        )
+
         # Inicializa o cliente OpenAI
-        self.client = OpenAI(api_key=self.openai_api_key)
+        # self.client = OpenAI(api_key=self.openai_api_key)
         
         # Inicializa o gerenciador de banco de dados
         self.db_manager = DatabaseManager()
@@ -36,7 +47,7 @@ class AIAgent:
         self.app = Application.builder().token(self.telegram_api_key).build()
 
         # Dicionário para armazenar o histórico em memória
-        self.historico_por_usuario = {} # {user_id: [{"role": "...", "content": "...", "timestamp": "..."}]}
+        self.historico_por_usuario = {} # {user_id: ChatMessageHistory}
 
         # Limite de mensagens no histórico em memória (ajustável para 30)
         self.max_historico_length = 10 # System + últimas (N-1) interações
@@ -51,34 +62,32 @@ class AIAgent:
             # tuple: (resposta da IA, histórico atualizado).
 
         # Recupera ou inicializa o histórico do usuário
-        historico = self.historico_por_usuario.get(
-            user_id, [{"role": "system", "content": self.resposta_sucinta}]
-        )
+        if user_id not in self.historico_por_usuario:
+            self.historico_por_usuario[user_id] = ChatMessageHistory()
+            self.historico_por_usuario[user_id].add_message(SystemMessage(content=self.resposta_sucinta))
+
+        historico = self.historico_por_usuario[user_id]
+        
         try:
-            historico.append({"role": "user", "content": question, "timestamp": datetime.now().isoformat()})
-            logger.info(f"Histórico atualizado para o user_id {user_id}: {historico}")
+            historico.add_message(HumanMessage(content=question, metadata={"timestamp": datetime.now().isoformat()}))
+            logger.info(f"Histórico atualizado para o user_id {user_id}: {historico.messages}")
 
             # Salva apenas a mensagem do usuário no BD
             self.db_manager.salvar_mensagem_usuario(user_id, question)
 
-            #Chama a API com o histórico completo
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=historico,
-                max_tokens=30,
-                temperature=0.7
-            )
-            resposta = response.choices[0].message.content.strip()
+            #Chama o modelo com o histórico completo
+
+            response = self.llm.invoke(historico.messages)
+            resposta = response.content.strip()
 
             # Adiciona a resposta da IA ao histórico
-            historico.append({"role": "assistant", "content": resposta, "timestamp": datetime.now().isoformat()})
+            historico.add_message(AIMessage(content=resposta, metadata={"timestamp": datetime.now().isoformat()}))
 
             # Limita o histórico com janela deslizante
-            if len(historico) > self.max_historico_length:
-                historico = [historico[0]] + historico[- (self.max_historico_length - 1):]
+            if len(historico.messages) > self.max_historico_length:
+                historico.messages = [historico.messages[0]] + historico.messages[- (self.max_historico_length - 1):]
 
             # Atualiza o histórico em memória
-            self.historico_por_usuario[user_id] = historico
             return resposta, historico
         except Exception as e:
             logger.error(f"Erro ao chamar a API da Inteligência Artificial: {e}")
@@ -89,7 +98,8 @@ class AIAgent:
         user_id = update.message.from_user.id
         nome = update.message.from_user.first_name # Recupera o nome do usuário
         self.db_manager.salvar_usuario(user_id, nome)
-        self.historico_por_usuario[user_id] = [{"role": "system", "content": self.resposta_sucinta}]
+        self.historico_por_usuario[user_id] = ChatMessageHistory()
+        self.historico_por_usuario[user_id].add_message(SystemMessage(content=self.resposta_sucinta))
         await update.message.reply_text(f'Olá, {nome}! {self.welcome_message}')
 
     # Responde às mensagens com contexto
@@ -103,11 +113,15 @@ class AIAgent:
 
         question = update.message.text
         historico = self.historico_por_usuario.get(
-            user_id, [{"role": "system", "content": self.resposta_sucinta}]
+            user_id, ChatMessageHistory()
         )
 
+        # Inicializa histórico se vazio
+        if not historico.messages:
+            historico.add_message(SystemMessage(content=self.resposta_sucinta))
+
         # Verifica mensagens duplicadas
-        if historico and historico[-1].get('role') == 'user' and historico[-1].get('content') == question:
+        if historico.messages and historico.messages[-1].type == 'human' and historico.messages[-1].content == question:
             logger.info(f"Mensagem duplicada detectada para user_id {user_id}: {question}")
             await update.message.reply_text(f'{nome}, por favor, envie uma nova pergunta.')
             return
@@ -117,7 +131,8 @@ class AIAgent:
 
     async def reset(self, update: Update, context: CallbackContext):
         user_id = update.message.from_user.id
-        self.historico_por_usuario[user_id] = [{"role": "system", "content": self.resposta_sucinta}] # Reseta o histórico na memória
+        self.historico_por_usuario[user_id] = ChatMessageHistory() # Reseta o histórico na memória
+        self.historico_por_usuario[user_id].add_message(SystemMessage(content=self.resposta_sucinta))
         await update.message.reply_text('Conversação reiniciada. Pode perguntar algo novo!')
 
     # Configura os handlers e inicia o bot
