@@ -5,6 +5,7 @@ from src.config import settings_loader
 from langchain_openai import ChatOpenAI
 from langchain.memory import ChatMessageHistory
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
@@ -12,6 +13,8 @@ from src.bot.database_manager import DatabaseManager
 from src.utils import MESSAGES
 import logging
 from datetime import datetime
+
+import re
 
 # Configuração do logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,9 +39,6 @@ class AIAgent:
             temperature=0.7
         )
 
-        # Inicializa o cliente OpenAI
-        # self.client = OpenAI(api_key=self.openai_api_key)
-        
         # Inicializa o gerenciador de banco de dados
         self.db_manager = DatabaseManager()
         self.db_manager.init_db()
@@ -51,6 +51,12 @@ class AIAgent:
 
         # Limite de mensagens no histórico em memória (ajustável para 30)
         self.max_historico_length = 10 # System + últimas (N-1) interações
+
+        # Adicionar prompt personalizado para buscas
+        self.search_prompt = ChatPromptTemplate.from_messages([
+            ("system", self.resposta_sucinta + "\n Se houver resultados de busca de serviços, inclua-os na resposta de forma clara e concisa.")
+            , ("human", "pergunta: {question}\nResultados da busca: {search_results}")
+        ])
 
     def ask_gpt(self, question: str, user_id: int) -> tuple:
         # Chama a API da OpenAI com a pergunta do usuário e gerencia o histórico em memória.
@@ -69,6 +75,24 @@ class AIAgent:
         historico = self.historico_por_usuario[user_id]
         
         try:
+            # Verifica se a pergunta é sobre serviços
+            match = re.search(r'\b(buscar|serviço|serviços|preço|preços|agendar)\s+(?:de\s+|da\s+|do\s+)?(\w+)', question, re.IGNORECASE)
+            if match:
+                termo = match.group(2).strip().lower()
+                logger.info(f"Busca acionada com termo: {termo}")
+                resultados = self.db_manager.buscar_servicos(termo)
+                logger.info(f"Resultados da busca: {resultados}")
+                if resultados:
+                    search_results = "\n".join([
+                        f"- {r['nome']}: {r['descricao']} (Preço: RS{r['preco']:.2f}, Duração: {r['duracao_minutos']} min)"
+                        for r in resultados
+                    ])
+                else:
+                    search_results = "nenhum serviço encontrado."
+            else:
+                search_results = "Nenhuma busca de serviços realizada."
+                logger.info("Nenhuma busca de serviço acionada.")
+
             historico.add_message(HumanMessage(content=question, metadata={"timestamp": datetime.now().isoformat()}))
             logger.info(f"Histórico atualizado para o user_id {user_id}: {historico.messages}")
 
@@ -76,8 +100,9 @@ class AIAgent:
             self.db_manager.salvar_mensagem_usuario(user_id, question)
 
             #Chama o modelo com o histórico completo
-
-            response = self.llm.invoke(historico.messages)
+            prompt = self.search_prompt.format_messages(question = question, search_results = search_results)
+            logger.info(f"Prompt enviado ao LangChain: {prompt}")
+            response = self.llm.invoke(prompt)
             resposta = response.content.strip()
 
             # Adiciona a resposta da IA ao histórico
