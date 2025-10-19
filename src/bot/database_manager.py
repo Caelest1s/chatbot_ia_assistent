@@ -97,20 +97,18 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS agenda (
                     agenda_id BIGSERIAL PRIMARY KEY,
                     user_id BIGINT REFERENCES usuarios(user_id) ON DELETE CASCADE,
-                    servico_id BIGINT REFERENCES servicos(servico_id) ON DELETE SET NULL,
-                    dia_semana VARCHAR(10) NOT NULL CHECK (dia_semana IN (
-                        'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'
-                    )),
-                    horario TIME NOT NULL CHECK (horario >= '08:00' AND horario <= '22:00'),
+                    servico_id BIGINT REFERENCES servicos(servico_id) ON DELETE RESTRICT,
+                    hora_inicio TIME NOT NULL CHECK (hora_inicio >= '08:00' AND hora_inicio <= '22:00'),
+                    hora_fim TIME NOT NULL CHECK (hora_fim >= '08:00' AND hora_fim <= '22:00'),
                     data DATE NOT NULL,
-                    status VARCHAR(20) DEFAULT 'pendente' CHECK (status IN ('pendente', 'confirmado', 'cancelado')),
+                    status VARCHAR(20) DEFAULT 'agendado' CHECK (status IN ('agendado', 'cancelado', 'concluido')),
                     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 """)
 
                 cursor.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_agenda_user_data_horario
-                    ON agenda (user_id, data, horario);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_agenda_user_data_hora_inicio
+                    ON agenda (user_id, data, hora_inicio);
                 """)
 
                 conn.commit()
@@ -218,86 +216,63 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    # def listar_horarios_disponiveis(conn, data):
-    #     # Lista horários disponíveis para agendamento em uma data específica.
-    #     cursor = conn.cursor()
+    def verificar_disponibilidade(self, data: str, hora_inicio: str, id_barbeiro: int = None):
+        try:
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                query = """
+                    SELECT hora_inicio, hora_fim
+                    FROM agenda
+                    WHERE data = %s
+                    AND status IN ('agendado', 'concluido')
+                """
+                params = [data]
+                if id_barbeiro:
+                    query += " AND id_barbeiro = %s"
+                    params.append(id_barbeiro)
+                cursor.execute(query, params)
+                agendamentos = cursor.fetchall()
+                return agendamentos  # Lista de tuplas (hora_inicio, hora_fim)
+        except Exception as e:
+            logger.error(f"Erro ao verificar disponibilidade: {e}")
+            return []
+        finally:
+            conn.close()
 
-    #     # Gera a lista de horários de 08h às 22h, de hora em hora
-    #     inicio = time(8, 0)
-    #     fim = time(22, 0)
-    #     intervalo = timedelta(hours=1)
-    #     horarios = []
-    #     atual = datetime.combine(data, inicio)
-    #     while atual.time() <= fim:
-    #         horarios.append(atual.time())
-    #         atual += intervalo
-
-    #     # Busca horários já ocupados nessa data
-    #     cursor.execute("""
-    #         SELECT horario FROM agenda
-    #         WHERE data = %s AND status IN ('pendente', 'confirmado')
-    #     """, (data,))
-    #     ocupados = {row[0] for row in cursor.fetchall()}
-
-    #     # Retorna apenas os disponíveis
-    #     disponiveis = [h for h in horarios if h not in ocupados]
-    #     cursor.close()
-    #     return disponiveis
-    
-    # def agendar_horario(conn, user_id, servico_id, data, horario):
-    #     # Agenda um horário se disponível. return True se agendado, False se ocupado.
-    #     cursor = conn.cursor()
-
-    #     # Verifica se já existe agendamento para o mesmo horário e data
-    #     cursor.execute("""
-    #         SELECT COUNT(*) FROM agenda
-    #         WHERE data = %s AND horario = %s
-    #         AND status IN ('pendente', 'confirmado')
-    #     """, (data, horario))
-    #     existe = cursor.fetchone()[0] > 0
-
-    #     if existe:
-    #         cursor.close()
-    #         return False  # Já ocupado
-
-    #     # Insere novo agendamento
-    #     cursor.execute("""
-    #         INSERT INTO agenda (user_id, servico_id, data, horario, status)
-    #         VALUES (%s, %s, %s, %s, 'pendente')
-    #     """, (user_id, servico_id, data, horario))
-    #     conn.commit()
-    #     cursor.close()
-    #     return True
-    
-    # def confirmar_horario(conn, agenda_id):
-    #     # Confirma um horário pendente.
-    #     cursor = conn.cursor()
-    #     cursor.execute("""
-    #         UPDATE agenda
-    #         SET status = 'confirmado'
-    #         WHERE agenda_id = %s AND status = 'pendente'
-    #     """, (agenda_id,))
-    #     conn.commit()
-    #     atualizado = cursor.rowcount > 0
-    #     cursor.close()
-    #     return atualizado
-    
-    # def cancelar_horario(conn, agenda_id):
-    #     # Cancela um horário (mantém histórico).
-    #     cursor = conn.cursor()
-    #     cursor.execute("""
-    #         UPDATE agenda
-    #         SET status = 'cancelado'
-    #         WHERE agenda_id = %s AND status IN ('pendente', 'confirmado')
-    #     """, (agenda_id,))
-    #     conn.commit()
-    #     cancelado = cursor.rowcount > 0
-    #     cursor.close()
-    #     return cancelado
+    def inserir_agendamento(self, user_id: int, servico_id: int, data: str, hora_inicio: str):
+        try:
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                # Obter duração do serviço
+                cursor.execute("SELECT duracao_minutos FROM servicos WHERE servico_id = %s", (servico_id,))
+                result = cursor.fetchone()
+                if not result:
+                    return False, "Serviço não encontrado."
+                duracao = result[0]
+                # Calcular hora_fim
+                hora_inicio_dt = datetime.strptime(hora_inicio, '%H:%M')
+                hora_fim_dt = hora_inicio_dt + timedelta(minutes=duracao)
+                hora_fim = hora_fim_dt.strftime('%H:%M')
+                # Verificar conflitos
+                agendamentos = self.verificar_disponibilidade(data, hora_inicio)
+                for inicio, fim in agendamentos:
+                    if (time.fromisoformat(hora_inicio) < fim and hora_fim_dt.time() > inicio):
+                        return False, "Horário indisponível."
+                # Inserir agendamento
+                cursor.execute("""
+                    INSERT INTO agenda (user_id, servico_id, hora_inicio, hora_fim, data, status)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING agenda_id
+                """, (user_id, servico_id, hora_inicio, hora_fim, data, 'agendado'))
+                agenda_id = cursor.fetchone()[0]
+                conn.commit()
+                return True, f"Agendamento #{agenda_id} confirmado para {data} às {hora_inicio}."
+        except Exception as e:
+            logger.error(f"Erro ao inserir agendamento: {e}")
+            return False, f"Erro ao agendar: {str(e)}"
+        finally:
+            conn.close()
 
 if __name__ == "__main__":
     db_manager = DatabaseManager()
     db_manager.init_db()
-
-    resultados = db_manager.buscar_servicos("manicure")
-    print(resultados)

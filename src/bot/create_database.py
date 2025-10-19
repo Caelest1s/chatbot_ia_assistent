@@ -111,23 +111,21 @@ class CreateDatabase:
             # Criar tabela agenda
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS agenda (
-                agenda_id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT REFERENCES usuarios(user_id) ON DELETE CASCADE,
-                servico_id BIGINT REFERENCES servicos(servico_id) ON DELETE SET NULL,
-                dia_semana VARCHAR(10) NOT NULL CHECK (dia_semana IN (
-                    'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'
-                )),
-                horario TIME NOT NULL CHECK (horario >= '08:00' AND horario <= '22:00'),
-                data DATE NOT NULL,
-                status VARCHAR(20) DEFAULT 'pendente' CHECK (status IN ('pendente', 'confirmado', 'cancelado')),
-                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    agenda_id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES usuarios(user_id) ON DELETE CASCADE,
+                    servico_id BIGINT REFERENCES servicos(servico_id) ON DELETE RESTRICT,
+                    hora_inicio TIME NOT NULL CHECK (hora_inicio >= '08:00' AND hora_inicio <= '22:00'),
+                    hora_fim TIME NOT NULL CHECK (hora_fim >= '08:00' AND hora_fim <= '22:00'),
+                    data DATE NOT NULL,
+                    status VARCHAR(20) DEFAULT 'agendado' CHECK (status IN ('agendado', 'cancelado', 'concluido')),
+                    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """)
 
             # Criar índice único para evitar duplicidade de agendamento por usuário
             cursor.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_agenda_user_data_horario
-                ON agenda (user_id, data, horario);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_agenda_user_data_hora_inicio
+                ON agenda (user_id, data, hora_inicio);
             """)
 
             conn.commit()

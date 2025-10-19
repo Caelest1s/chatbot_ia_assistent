@@ -24,12 +24,12 @@ INSERT INTO servicos (servico_id, nome, descricao, preco, duracao_minutos, ativo
 (8, 'Maquiagem', 'Maquiagem profissional para eventos.', 100.00, 60, TRUE);
 
 -- Populando a tabela agenda
-INSERT INTO agenda (user_id, servico_id, dia_semana, horario, data, status) VALUES
-(1001, 1, 'segunda', '09:00', '2025-10-20', 'pendente'),
-(1001, 4, 'segunda', '10:00', '2025-10-20', 'confirmado'),
-(1002, 2, 'terça', '14:00', '2025-10-21', 'pendente'),
-(1003, 5, 'quarta', '16:00', '2025-10-22', 'cancelado'),
-(1002, 6, 'quinta', '11:00', '2025-10-23', 'pendente'),
-(1001, 3, 'sexta', '13:00', '2025-10-24', 'confirmado'),
-(1003, 7, 'sabado', '15:00', '2025-10-25', 'pendente'),
-(1004, 8, 'domingo', '12:00', '2025-10-26', 'pendente');
+INSERT INTO agenda (user_id, servico_id, hora_inicio, hora_fim, data, status) VALUES
+(1001, 1, '09:00', '09:30', '2025-10-20', 'agendado'),  
+(1001, 4, '10:00', '10:45', '2025-10-20', 'concluido'),  
+(1002, 2, '14:00', '14:30', '2025-10-21', 'agendado'),   
+(1003, 5, '16:00', '16:45', '2025-10-22', 'cancelado'),   
+(1002, 6, '11:00', '11:30', '2025-10-23', 'agendado'),    
+(1001, 3, '13:00', '13:30', '2025-10-24', 'concluido'),   
+(1003, 7, '15:00', '15:45', '2025-10-25', 'agendado'),    
+(1004, 8, '12:00', '12:30', '2025-10-26', 'agendado');
