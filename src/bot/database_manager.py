@@ -240,6 +240,9 @@ class DatabaseManager:
             conn.close()
 
     def inserir_agendamento(self, user_id: int, servico_id: int, data: str, hora_inicio: str):
+        # Verifica que DATA seja futura
+        if datetime.strptime(data, '%Y-%m-%d').date() < datetime.now().date():
+            return False, "Não é possível agendar para datas passadas."
         try:
             conn = self.get_connection()
             with conn.cursor() as cursor:

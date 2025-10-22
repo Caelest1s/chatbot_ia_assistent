@@ -13,6 +13,7 @@ dependencies = [
     , "langchain>=0.3.0"
     , "langchain-openai>=0.3.0"
     , "langchain-community>=0.3.0"
+    , "pydantic>=2.11.9"
 ]
 
 [project.optional-dependencies]
@@ -30,3 +31,4 @@ packages = ["src.bot", "src.utils", "src.config"]
 "src.bot" = "src/bot"
 "src.utils" = "src/utils"
 "src.config" = "src/config"
+"src.schemas" = "src/schemas"
