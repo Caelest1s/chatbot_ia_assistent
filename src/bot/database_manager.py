@@ -99,7 +99,7 @@ class DatabaseManager:
                     user_id BIGINT REFERENCES usuarios(user_id) ON DELETE CASCADE,
                     servico_id BIGINT REFERENCES servicos(servico_id) ON DELETE RESTRICT,
                     hora_inicio TIME NOT NULL CHECK (hora_inicio >= '08:00' AND hora_inicio <= '22:00'),
-                    hora_fim TIME NOT NULL CHECK (hora_fim >= '08:00' AND hora_fim <= '22:00'),
+                    hora_fim TIME NOT NULL CHECK (hora_fim >= '08:00' AND hora_fim <= '23:30'),
                     data DATE NOT NULL,
                     status VARCHAR(20) DEFAULT 'agendado' CHECK (status IN ('agendado', 'cancelado', 'concluido')),
                     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -194,7 +194,7 @@ class DatabaseManager:
                 query = """
                     SELECT servico_id, nome, descricao, preco, duracao_minutos
                     FROM servicos
-                    WHERE nome ILIKE %s OR descricao ILIKE %s
+                    WHERE (nome ILIKE %s OR descricao ILIKE %s)
                     AND ativo = TRUE;
                 """
                 cursor.execute(query, (f'%{termo}%', f'%{termo}%'))
