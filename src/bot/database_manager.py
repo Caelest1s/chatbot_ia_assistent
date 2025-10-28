@@ -6,7 +6,8 @@ import json
 import os
 from src.config import load_settings
 from src.utils import MESSAGES
-import logging                    
+import logging
+from typing import Optional, Dict     
 
 # Configuração do logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -79,6 +80,15 @@ class DatabaseManager:
                         user_id BIGINT PRIMARY KEY REFERENCES usuarios(user_id),
                         conversas TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_sessions (
+                        user_id BIGINT PRIMARY KEY REFERENCES usuarios(user_id) ON DELETE CASCADE,
+                        current_intent VARCHAR(50),
+                        slot_data JSONB, -- JSONB é o tipo ideal para armazenar JSON no PG
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
 
@@ -273,6 +283,108 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Erro ao inserir agendamento: {e}")
             return False, f"Erro ao agendar: {str(e)}"
+        finally:
+            conn.close()
+    
+    # ================================ SLOTS ================================
+    def get_session_state(self, user_id: int) -> dict:
+        """Recupera o estado atual da sessão (intenção e slots preenchidos) do PostgreSQL."""
+        try:
+            conn = self.get_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    "SELECT current_intent, slot_data FROM user_sessions WHERE user_id = %s", 
+                    (user_id,)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    # slot_data já vem como dict/json se for recuperado via RealDictCursor de um campo JSONB
+                    return {
+                        "user_id": user_id, 
+                        "current_intent": result.get('current_intent'), 
+                        "slot_data": result.get('slot_data') or {}
+                    }
+                
+                # Retorna um estado inicial se não houver sessão
+                return {"user_id": user_id, "current_intent": None, "slot_data": {}}
+                
+        except Exception as e:
+            logger.error(f"Erro ao obter o estado da sessão para o user_id {user_id}: {e}")
+            return {"user_id": user_id, "current_intent": None, "slot_data": {}}
+        finally:
+            conn.close()
+
+    def update_session_state(self, user_id: int, current_intent: Optional[str] = None, slot_data: Optional[Dict] = None):
+        """Atualiza o estado da sessão com a intenção atual e dados de slot no PostgreSQL."""
+        if slot_data is None and current_intent is None:
+            return # Nada a fazer
+        
+        # 1. Recupera o estado atual (Isto abre e fecha a conexão internamente)
+        current_state = self.get_session_state(user_id)
+
+        # 2. Mescla a lógica fora do bloco try/catch/conexão
+        new_intent = current_intent if current_intent is not None else current_state["current_intent"]
+
+        new_slot_data = current_state["slot_data"].copy()
+        if slot_data is not None:
+            # Garante que NENHUM valor 'None' da LLM substitua valores existentes
+            # Apenas valores válidos e extraídos ('AGENDAR', 'Corte', '29/10/2025')
+            for key, value in slot_data.items():
+                if value is not None:
+                    new_slot_data[key] = value
+        conn = None # Inicializa a conexão fora do try
+        try:
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO user_sessions (user_id, current_intent, slot_data)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        current_intent = EXCLUDED.current_intent,
+                        slot_data = EXCLUDED.slot_data,
+                        last_updated = CURRENT_TIMESTAMP
+                    """,
+                    (user_id, new_intent, json.dumps(new_slot_data)) # json.dumps para JSONB
+                )
+                conn.commit()
+                logger.info(f"Estado da sessão atualizado para o user_id {user_id}: Intent={new_intent}, Slots={new_slot_data}")
+
+        except Exception as e:
+            logger.error(f"Erro ao atualizar o estado da sessão para o user_id {user_id}: {e}")
+        finally:
+            if conn: # Fecha a conexão que foi aberta
+                conn.close()
+
+    def clear_session_state(self, user_id: int):
+        """Limpa a intenção e os slots da sessão do usuário no PostgreSQL."""
+        try:
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE user_sessions SET current_intent = NULL, slot_data = NULL, last_updated = CURRENT_TIMESTAMP WHERE user_id = %s", 
+                    (user_id,)
+                )
+                conn.commit()
+                logger.info(f"Estado da sessão limpo para o user_id {user_id}.")
+
+        except Exception as e:
+            logger.error(f"Erro ao limpar o estado da sessão para o user_id {user_id}: {e}")
+        finally:
+            conn.close()
+
+    # Método auxiliar para o AI Assistant listar serviços (melhoria)
+    def get_available_services_names(self) -> list:
+        """Retorna uma lista de nomes de serviços ativos para o prompt da IA."""
+        try:
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT nome FROM servicos WHERE ativo = TRUE")
+                return [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Erro ao obter nomes de serviços: {e}")
+            return []
         finally:
             conn.close()
 

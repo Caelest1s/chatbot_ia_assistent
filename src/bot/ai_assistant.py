@@ -8,7 +8,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 
-from src.schemas.intencao_schema import Intencao
+from src.schemas.slot_extraction_schema import SlotExtraction
 from src.bot.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -34,10 +34,15 @@ class AIAssistant:
             , ("human", "{question}")
         ])
 
-        # Configuração ddo Prompt de Extração Pydantic
-        self.output_parser = PydanticOutputParser(pydantic_object=Intencao)
+        # Configuração do Prompt de Extração Pydantic
+        self.output_parser = PydanticOutputParser(pydantic_object=SlotExtraction)
+
+        # Gera uma lista de serviços para dar contexto à IA
+        services_list = ", ".join(self.db_manager.get_available_services_names())
+        contextual_prompt = self.prompt_extrator_dados_ai.format(servicos_disponiveis=services_list) # Assumindo que seu prompt aceita a variável {servicos_disponiveis}
+
         self.extraction_prompt = ChatPromptTemplate.from_messages([
-            ("system", self.prompt_extrator_dados_ai + "\n{format_instructions}")
+            ("system", contextual_prompt + "\n{format_instructions}")
             , ("human", "{texto_usuario}")
         ]).partial(format_instructions=self.output_parser.get_format_instructions())
 
@@ -57,7 +62,7 @@ class AIAssistant:
         self.historico_por_usuario[user_id] = ChatMessageHistory()
         self.historico_por_usuario[user_id].add_message(SystemMessage(content=self.resposta_sucinta))
 
-    def extract_intent_and_data(self, text: str) -> Intencao:
+    def extract_intent_and_data(self, text: str) -> SlotExtraction:
         """Chama a LLM para extrair a intenção e dados estruturados."""
         try:
             prompt_extraction = self.extraction_prompt.format_messages(texto_usuario = text)
@@ -65,13 +70,13 @@ class AIAssistant:
             logger.info(f"Resposta bruta da extração: '{extraction_response.content}'")
             
             # parseia a resposta JSON para o objeto Pydantic
-            dados_estruturados: Intencao = self.output_parser.parse(extraction_response.content)
+            dados_estruturados: SlotExtraction = self.output_parser.parse(extraction_response.content)
             logger.info(f"Dados extraídos (JSON/Pydantic) pela IA: {dados_estruturados.model_dump()}")
             return dados_estruturados
         except Exception as e:
-            logger.error(f"Erro ao extrair JSON ou parsear: {e}. Retornando Intencao GENERICO.")
+            logger.error(f"Erro ao extrair JSON ou parsear: {e}. Retornando SlotExtraction GENERICO.")
             # Se a extração falhar, volta para a pergunta original e trata como GENERICO
-            return Intencao(intent='GENERICO', servico_nome=text)
+            return SlotExtraction(intent='GENERICO', servico_nome=text)
         
     def ask_gpt(self, question: str, user_id: int) -> str:
         """Chama a LLM para perguntas genéricas com histórico."""

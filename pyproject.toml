@@ -32,3 +32,4 @@ packages = ["src.bot", "src.utils", "src.config"]
 "src.utils" = "src/utils"
 "src.config" = "src/config"
 "src.schemas" = "src/schemas"
+"src.models" = "src/models"
