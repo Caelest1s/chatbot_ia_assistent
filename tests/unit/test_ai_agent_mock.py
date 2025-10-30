@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
-from src.bot.ai_agent import AIAgent
+from src.bot.main import AIAgent
 
 # -----------------------------
 # Fixture do AIAgent com mocks
