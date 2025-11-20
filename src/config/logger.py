@@ -1,3 +1,4 @@
+# src/config/logger.py
 import logging
 import colorlog
 import sys
@@ -76,7 +77,25 @@ def configure_root_and_external_loggers():
     # Se você quiser que o logger raiz não tenha handlers (para evitar duplicação)
     # Mas deixe o nível para DEBUG para que as libs externas passem os logs
     # para você, se necessário.
-    root_logger.handlers = []
+    
+    # root_logger.handlers = []
+    # Garantir que o root logger tenha pelo menos um handler colorido
+    if not root_logger.handlers:
+        root_handler = colorlog.StreamHandler(sys.stdout)
+        root_formatter = colorlog.ColoredFormatter(
+            "%(log_color)s%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            log_colors={
+                'DEBUG': 'cyan',
+                'INFO': 'green',
+                'WARNING': 'yellow',
+                'ERROR': 'red',
+                'CRITICAL': 'bold_red,bg_white'
+            }
+        )
+    root_handler.setFormatter(root_formatter)
+    root_logger.addHandler(root_handler)
+
     root_logger.setLevel(logging.DEBUG)
     
     # Exemplo: Aumentar o nível de log do HTTP para evitar muito barulho

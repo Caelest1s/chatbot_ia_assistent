@@ -1,45 +1,57 @@
+# # src/bot/llm_service.ppy
 # import logging
 from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import ContextTypes
 from src.bot.history_manager import HistoryManager
-from src.bot.database_manager import DatabaseManager
+from src.services.data_service import DataService
 from src.schemas.slot_extraction_schema import SlotExtraction
 from src.bot.llm_config import LLMConfig
 from src.utils.system_message import MESSAGES
-from src.utils.logger import setup_logger
+from src.config.logger import setup_logger
 
 if TYPE_CHECKING:
-    from langchain_core.messages import BaseMessage # Apenas para typing
+    from langchain_core.messages import BaseMessage  # Apenas para typing
 
 logger = setup_logger(__name__)
 
-class LLMService: # Antiga ai_assistance.py
+
+class LLMService:  # Antiga ai_assistance.py
     """Gerencia a interação direta com a LLM (Extração e Resposta Genérica)."""
-    def __init__(self, llm_config: LLMConfig, history_manager: HistoryManager, db_manager: DatabaseManager):
-        self.llm = llm_config.llm
+
+    def __init__(self, llm_config: LLMConfig, history_manager: HistoryManager, data_service: DataService):
+        self.llm_config = llm_config
         self.extraction_prompt = llm_config.extraction_prompt
         self.output_parser = llm_config.output_parser
         self.history_manager = history_manager
-        self.db_manager = db_manager
-        self.search_prompt = llm_config.search_prompt # Mantido se for útil
+        self.data_service = data_service
+        self.search_prompt = llm_config.search_prompt  # Mantido se for útil
 
-    def extract_intent_and_data(self, text: str) -> SlotExtraction:
-        """Chama a LLM para extrair a intenção e dados estruturados."""
+    async def extract_intent_and_data(self, text: str, current_slots: dict | None = None) -> SlotExtraction:
+        """
+        Extrai intenção e slots com MEMÓRIA dos slots já preenchidos.
+        current_slots = dicionário da sessão.
+        """
         try:
-            prompt_extraction: list['BaseMessage'] = self.extraction_prompt.format_messages(texto_usuario=text)
-            extraction_response = self.llm.invoke(prompt_extraction)
-            logger.info(f"Resposta bruta da extração: '{extraction_response.content}'")
+            # 1. Obter a Chain/Runnable de Extração, injetando a memória (current_slots)
+            # O LLMConfig.get_extraction_chain já cuida da serialização JSON e do prompt.
+            extraction_chain = self.llm_config.get_extraction_chain(current_slots or {})
 
-            dados_estruturados: SlotExtraction = self.output_parser.parse(extraction_response.content)
-            logger.info(f"Dados extraídos (JSON/Pydantic): {dados_estruturados.model_dump()}")
+            # 2. Invocar a Chain com o texto atual do usuário
+            # A chave de entrada aqui é a que foi definida na chain formatada (texto_usuario)
+            dados_estruturados = await extraction_chain.ainvoke({"texto_usuario": text})
+
+            logger.info(f"Dados extraídos (Pydantic): {dados_estruturados.model_dump()}")
+
+            # O resultado da chain já é o objeto SlotExtraction parseado
             return dados_estruturados
         except Exception as e:
-            logger.error(f"Erro ao extrair JSON ou parsear: {e}. Retornando SlotExtraction GENERICO.")
+            logger.error(f"Erro ao extrair slots: {e}", exc_info=True)
             # Se a extração falhar (como intent=null), retorna GENERICO,
             # e os slots ficam nulos (data=null, hora=null), permitindo que o SlotFiller continue.
-            return SlotExtraction(intent='GENERICO')
-        
+            # Retorna GENERICO para que o bot possa tratar o erro ou pedir reformulação
+            return SlotExtraction(intent="GENERICO")
+
     async def handle_generico(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         """Chama a LLM para perguntas genéricas com histórico."""
         user_id = update.effective_user.id
@@ -47,23 +59,26 @@ class LLMService: # Antiga ai_assistance.py
         try:
             # 1. Adiciona a pergunta do usuário ao histórico
             self.history_manager.add_message(user_id, question, is_user=True)
-            self.db_manager.salvar_mensagem_usuario(user_id, question)
+            await self.data_service.salvar_mensagem_usuario(user_id, question)
 
             # 2. Obtém o prompt completo (com histórico e SystemMessage)
             prompt = self.history_manager.get_prompt(user_id)
-            logger.info(f"Prompt enviado ao LLM (Genérico) para user_id {user_id}")
+            logger.info(
+                f"Prompt enviado ao LLM (Genérico) para user_id {user_id}")
 
             # 3. Invoca a LLM
-            response = self.llm.invoke(prompt)
+            response = self.llm_config.llm.invoke(prompt)
             resposta = response.content.strip()
 
             # 4. Adiciona a resposta da IA ao histórico
             self.history_manager.add_message(user_id, resposta, is_user=False)
             await update.message.reply_text(resposta)
             return resposta
-        
+
         except Exception as e:
-            logger.error(f"Erro ao chamar a API da Inteligência Artificial em handle_generico: {e}")
-            nome = self.db_manager.get_nome_usuario(user_id) or update.effective_user.first_name
+            logger.error(
+                f"Erro ao chamar a API da Inteligência Artificial em handle_generico: {e}")
+            nome = self.data_service.get_nome_usuario(
+                user_id) or update.effective_user.first_name
             await update.message.reply_text(MESSAGES['GENERAL_ERROR'].format(nome=nome))
             return False

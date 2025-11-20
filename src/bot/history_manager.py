@@ -1,3 +1,4 @@
+# # src/bot/history_manager.py
 import logging
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain_community.chat_message_histories import ChatMessageHistory
@@ -7,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class HistoryManager:
     """Gerencia o histórico de conversas em memória, aplicando janela deslizante."""
-    def __init__(self, system_message_content: str, max_length: int = 10):
+    def __init__(self, system_message_content: str, max_length: int = 5):
         # Dicionário para armazenar o histórico em memória: {user_id: ChatMessageHistory}
         self.historico_por_usuario = {}
         self.system_message = SystemMessage(content=system_message_content)

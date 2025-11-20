@@ -25,12 +25,12 @@ test = [
 dev = []
 
 [tool.setuptools]
-packages = ["src.bot", "src.utils", "src.config", "src.services", "src.schemas", "src.models"]
+packages = ["src.bot", "src.config", "src.database", "src.schemas", "src.services", "src.utils"]
 
 [tool.setuptools.package-dir]
 "src.bot" = "src/bot"
-"src.utils" = "src/utils"
 "src.config" = "src/config"
-"src.services" =  "src/services"
+"src.database" = "src/database"
 "src.schemas" = "src/schemas"
-"src.models" = "src/models"
+"src.services" =  "src/services"
+"src.utils" = "src/utils"
