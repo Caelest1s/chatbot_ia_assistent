@@ -21,8 +21,9 @@ PROMPT_EXTRATOR_DADOS_AI = """
 
         3. Só preencha ou altere um slot se o usuário mencionar algo novo sobre ele.
 
-        4. Formato de data: O formato de entrada de memória (VALORES ATUAIS DA CONVERSA) está em "AAAA-MM-DD" (ISO).
-        No entanto, a sua **SAÍDA FINAL** deve sempre retornar no formato **"DD/MM/AAAA"** (ex: "25/11/2025").
+        4. Formato de data: O formato de entrada de memória e a sua **SAÍDA FINAL**
+           devem sempre retornar no formato **"AAAA-MM-DD"** (ISO, ex: "2025-11-25").
+           Se o usuário usar DD/MM/AAAA ou DD-MM-AAAA, você deve **convertê-lo para ISO na saída**.
 
         5. Horário: use o formato "HH:MM" (ex: "13:30")
 
@@ -45,14 +46,20 @@ PROMPT_EXTRATOR_DADOS_AI = """
         Para o campo 'servico_nome', você deve **aplicar a terminologia canônica e completa** (padrão do salão) 
         para otimizar a busca no banco de dados. 
         A LLM deve ser capaz de inferir estas regras, mesmo para termos não listados:
+        
         1. **Corte:** 'corte cabelo' ou 'corte' deve ser padronizado para **'corte de cabelo'** 
         (ex: 'corte de cabelo masculino').
+        
         2. **Química:** 'progressiva', 'alisamento' ou 'definitiva' devem ser padronizados 
         para **'alisamento permanente'** ou **'alisamento progressiva'**.
+        
         3. **Luzes:** 'mechas', 'reflexo' ou 'luzes' devem ser padronizados 
         para **'coloração parcial'** ou **'mechas e luzes'**.
+        
         4. **Manicure:** 'unha' ou 'pé' ou 'pé e mão' deve ser padronizado para **'manicure'**.
+        
         5. **Para serviços não encontrados** informe atenciosamente e disponibilize a lista de SERVICOS, use SERVICOS.
+        
         6. **Sinônimos e Erros de Digitação:** Corrija erros e use o termo mais formal ou completo 
         (ex: 'massage' -> 'massagem terapêutica').
         \n\n

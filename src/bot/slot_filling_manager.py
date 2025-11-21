@@ -166,40 +166,42 @@ class SlotFillingManager:
         data_input = updated_slots.get('data')
 
         date_obj: Optional[date] = None
-        if data_input is not None:
+        if isinstance(data_input, str):
+            data_str = data_input.strip()
 
-            # Caso 1: já é um objeto date (primeira normalização)
-            if isinstance(data_input, date):
-                date_obj = data_input
+            # 1. Tenta o formato ISO (YYYY-MM-DD)
+            if len(data_str) == 10 and data_str.count('-') == 2:
+                try:
+                    date_obj = datetime.strptime(data_str, '%Y-%m-%d').date()
+                except ValueError:
+                    pass
 
-            # Caso 2: é string → tenta primeiro o formato ISO (o que a gente mesmo salva)
-            elif isinstance(data_input, str):
-                # Aceita tanto DD/MM/YYYY quanto YYYY-MM-DD
-                data_str = data_input.strip()
+            # 2. Se não for ISO, tenta os formatos DD/MM/YYYY ou DD-MM-YYYY (input do usuário/LLM)
+            if date_obj is None:
+                # O validador agora retorna (sucesso, msg_erro, data_string_DD/MM/YYYY)
+                is_valid, msg_erro, data_str_dd_mm_yyyy = self.appointment_service.validator.normalize_date_format(data_str)
 
-                # PRIORIDADE 1: aceitar o formato que NÓS MESMOS gravamos
-                if len(data_str) == 10 and data_str.count('-') == 2:
+                if is_valid and isinstance(data_str_dd_mm_yyyy, str):
                     try:
-                        date_obj = datetime.strptime(data_str, '%Y-%m-%d').date()
+                        # Se for válido, converte a string normalizada de volta para objeto date
+                        date_obj = datetime.strptime(data_str_dd_mm_yyyy, '%d/%m/%Y').date()
                     except ValueError:
-                        pass    # não era ISO, segue para o próximo
-
-                if date_obj is None:
-                    is_valid, msg_erro, normalized = self.appointment_service.validator.normalize_date_format(data_str)
-
-                    if is_valid and isinstance(normalized, date):
-                        date_obj = normalized
-                    else:
-                        await update.message.reply_text(msg_erro.format(nome=nome))
-                        updated_slots.pop('data', None)
-                        serializable_slots = prepare_data_for_json(updated_slots)
-                        await self.data_service.update_session_state(user_id, current_intent='AGENDAR'
-                                                                     , slot_data=serializable_slots)
-                        return True
-            else:
-                # Tipo desconhecido → remove
-                updated_slots.pop('data', None)
-
+                        # Erro interno de conversão - deve ser tratado como falha
+                        is_valid = False
+                        msg_erro = "Erro interno no formato de data. Tente novamente."
+                
+                if not is_valid:
+                    # Falha de validação de formato
+                    await update.message.reply_text(msg_erro.format(nome=nome))
+                    updated_slots.pop('data', None)
+                    serializable_slots = prepare_data_for_json(updated_slots)
+                    await self.data_service.update_session_state(user_id, current_intent='AGENDAR'
+                                                                 , slot_data=serializable_slots)
+                    return True
+        
+        # O Caso em que data_input é um objeto date (para re-execução) foi removido pois 
+        # agora gravamos sempre como string ISO no final do bloco.
+        
         # SE CHEGOU AQUI: temos um date_obj válido → gravamos SEMPRE como string ISO
         if date_obj is not None:
             updated_slots['data'] = date_obj.strftime('%Y-%m-%d') # SEMPRE string ISO no dict

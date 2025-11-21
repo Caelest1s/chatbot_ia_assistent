@@ -25,15 +25,24 @@ class AppointmentValidator:
         if not data_str:
             return False, "Data não fornecida.", None
 
+        # Tenta o formato ISO, pois é o formato que o LLM DEVE retornar
+        try:
+            date_obj = datetime.strptime(data_str, '%Y-%m-%d').date()
+            # Se for ISO, retorna a string padronizada DD/MM/AAAA para o slot manager
+            return True, "", date_obj.strftime('%d/%m/%Y')
+        except ValueError:
+            pass # Não era ISO, tenta o formato do usuário
+
         # Tenta formatos comuns do usuário (DD/MM/YYYY, DD-MM-YYYY)
         for fmt in ('%d/%m/%Y', '%d-%m-%Y'):
             try:
                 date_obj = datetime.strptime(data_str, fmt).date()
-                # return objeto date
-                return True, "", date_obj
+                # Retorna a string padronizada DD/MM/AAAA
+                return True, "", date_obj.strftime('%d/%m/%Y')
             except ValueError:
                 continue
 
+        # Mensagem de erro padrão
         msg = MESSAGES['VALIDATION_FORMAT_ERROR_DATE'].format(nome="usuário")
         return False, msg, None
 
@@ -97,14 +106,21 @@ class AppointmentValidator:
         Orquestra todas as validações de data e hora.
         Retorna (sucesso, mensagem, objeto datetime).
         """
-        # 1. Normalização de Data
-        sucesso_data, msg_erro, data_obj = self.normalize_date_format(data_str)
+        # 1. Normalização de Data (Saída: string DD/MM/YYYY)
+        sucesso_data, msg_erro, data_str_normalized = self.normalize_date_format(data_str)
         if not sucesso_data:
             return False, msg_erro, None
         
+        # Converter a string normalizada para objeto date para _combine_date_time
+        try:
+            # Converte a string DD/MM/YYYY para um objeto date
+            date_obj = datetime.strptime(data_str_normalized, '%d/%m/%Y').date()
+        except ValueError:
+            return False, "Erro interno de conversão de data.", None
+        
         # 2. Combinação e Validação de Formato da Hora
         data_hora_obj, msg_erro = self._combine_date_time(
-            data_obj, hora_str)
+            date_obj, hora_str)
         if data_hora_obj is None:
             return False, msg_erro, None
 
