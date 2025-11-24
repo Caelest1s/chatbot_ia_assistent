@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 # Importações dos módulos
-from src.database.repositories import UserRepository, AgendaRepository, SessionRepository
+from src.database.repositories import UserRepository, AgendaRepository, SessionRepository, MensagemRepository
 from src.utils import MESSAGES
 
 # Configuração do logging
@@ -49,14 +49,23 @@ class DataService:
     def _get_repos(self, session: AsyncSession) -> dict:
         """Centraliza a criação de todos os repositórios para a sessão atual."""
         return {
-            "user_repo": UserRepository(session, self.resposta_sucinta), "agenda_repo": AgendaRepository(session), "session_repo": SessionRepository(session)
+            "user_repo": UserRepository(session, self.resposta_sucinta)
+            , "agenda_repo": AgendaRepository(session)
+            , "session_repo": SessionRepository(session)
+            ,"mensagem_repo": MensagemRepository(session, self.resposta_sucinta)
         }
 
     # =========================================================
     # FUNÇÕES DE USUÁRIO (PROXY para UserRepository)
     # =========================================================
-    async def salvar_usuario(self, user_id: int, nome: str):
-        """Salva ou atualiza usuaário e comita em uma transação."""
+    async def salvar_usuario(self, user_id: int, nome: str, telefone: Optional[str] = None):
+        """
+        Salva ou atualiza usuaário e comita em uma transação.
+        Args:
+            user_id: ID do usuário.
+            nome: Nome do usuário.
+            telefone: Opcional, número de telefone como string.
+        """
         # Usa o context manager assíncrono para gerenciar a sessão e a transação
         async with self._get_session() as session:
             async with session.begin():
@@ -64,15 +73,25 @@ class DataService:
                     repositories = self._get_repos(session)
 
                     # Se o repositório fizer a lógica de INSERT/UPDATE
-                    await repositories["user_repo"].salvar_usuario(user_id, nome)
+                    await repositories["user_repo"].salvar_usuario(user_id, nome, telefone)
 
                     logger.info(
-                        f"Usuário {user_id} salvo/atualizado com sucesso.")
+                        f"Usuário {user_id} salvo/atualizado com sucesso (Telefone: {telefone}).")
                 except Exception as e:
                     # Não precisa de commit ou rollback manual aqui
                     logger.error(f"Erro transacional ao salvar usuário: {e}")
                     # Re-lança a exceção para que o bloco session.begin() faça o ROLLBACK.
                     raise
+
+    # ✅ NOVO MÉTODO: BUSCAR TELEFONE
+    async def get_telefone_usuario(self, user_id: int) -> Optional[str]:
+        """
+        Recupera o número de telefone do usuário pelo ID. Usado para checagem de onboarding.
+        """
+        async with self._get_session() as session:
+            repositories = self._get_repos(session)
+            # Você precisa implementar get_telefone_by_user_id no UserRepository
+            return await repositories["user_repo"].get_telefone_by_user_id(user_id)
 
     async def get_nome_usuario(self, user_id: int) -> Optional[str]:
         """Recupera nome de usuário (leitura não precisa de commit)."""
@@ -81,26 +100,49 @@ class DataService:
             return await repositories["user_repo"].get_nome_usuario(user_id)
 
     # =========================================================
-    # FUNÇÕES DE HISTÓRICO (PROXY para UserRepository)
+    # FUNÇÕES DE HISTÓRICO (PROXY para MensagemRepository)
     # =========================================================
-    async def get_historico(self, user_id: int) -> list:
+    async def get_historico_llm(self, user_id: int) -> list:
+        """Recupera o histórico de conversas formatado (com System Prompt) para o LLM."""
         async with self._get_session() as session:
             repositories = self._get_repos(session)
-            return await repositories["user_repo"].get_historico(user_id)
+            return await repositories["mensagem_repo"].get_historico_llm(user_id)
 
-    async def salvar_mensagem_usuario(self, user_id: int, mensagem: str):
-        """Salva a mensagem no histórico e comita em uma transação"""
+    async def salvar_mensagem(self, user_id: int, mensagem: str, origem: str):
+        """
+        Salva uma mensagem (usuário ou bot) no histórico e comita em uma transação.
+        
+        Args:
+            user_id: ID do usuário (do Telegram/plataforma).
+            mensagem: Conteúdo da mensagem.
+            origem: 'user' ou 'bot'.
+        """
         async with self._get_session() as session:
             async with session.begin():
                 try:
                     repositories = self._get_repos(session)
-                    await repositories["user_repo"].salvar_mensagem_usuario(user_id, mensagem)
 
-                    logger.info(
-                        f"Mensagem do usuário {user_id} salva e comitada.")
+                    await repositories["mensagem_repo"].salvar_mensagem(user_id, mensagem, origem)
+
+                    logger.info(f"Mensagem de '{origem}' para usuário {user_id} salva e comitada.")
                 except Exception as e:
                     logger.error(f"Erro transacional ao salvar mensagem: {e}")
                     # Re-lança a exceção para que o bloco session.begin() faça o ROLLBACK.
+                    raise
+
+    async def clear_historico(self, user_id: int):
+        """
+        Limpa o histórico de mensagens persistente no DB para um usuário.
+        """
+        async with self._get_session() as session:
+            async with session.begin():
+                try:
+                    repositories = self._get_repos(session)
+                    # Chama o método de remoção no repositório
+                    await repositories["mensagem_repo"].clear_historico(user_id)
+                    logger.info(f"Histórico de mensagens do usuário {user_id} limpo e comitado.")
+                except Exception as e:
+                    logger.error(f"Erro transacional ao limpar histórico: {e}")
                     raise
 
     # =========================================================

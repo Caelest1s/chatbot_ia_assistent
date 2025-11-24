@@ -1,5 +1,4 @@
 # # src/bot/llm_service.ppy
-# import logging
 from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -40,7 +39,6 @@ class LLMService:  # Antiga ai_assistance.py
             # 2. Invocar a Chain com o texto atual do usuário
             # A chave de entrada aqui é a que foi definida na chain formatada (texto_usuario)
             dados_estruturados = await extraction_chain.ainvoke({"texto_usuario": text})
-
             logger.info(f"Dados extraídos (Pydantic): {dados_estruturados.model_dump()}")
 
             # O resultado da chain já é o objeto SlotExtraction parseado
@@ -56,29 +54,45 @@ class LLMService:  # Antiga ai_assistance.py
         """Chama a LLM para perguntas genéricas com histórico."""
         user_id = update.effective_user.id
         question = update.message.text
+        resposta_do_bot = False
+
+        # Define o nome de fallback caso a busca no DB falhe
+        nome = update._effective_user.first_name
+
         try:
-            # 1. Adiciona a pergunta do usuário ao histórico
+            # 1. Adiciona a pergunta do usuário ao histórico (in-memory)
             self.history_manager.add_message(user_id, question, is_user=True)
-            await self.data_service.salvar_mensagem_usuario(user_id, question)
+
+            # **Salva a mensagem do usuário no DB ANTES da chamada do LLM.**
+            # Se a LLM falhar, a mensagem do usuário já está registrada.
+            # Usa o novo método com a origem 'user'.
+            await self.data_service.salvar_mensagem(user_id, question, origem='user')
 
             # 2. Obtém o prompt completo (com histórico e SystemMessage)
             prompt = self.history_manager.get_prompt(user_id)
-            logger.info(
-                f"Prompt enviado ao LLM (Genérico) para user_id {user_id}")
+            logger.info(f"Prompt enviado ao LLM (Genérico) para user_id {user_id}")
 
             # 3. Invoca a LLM
             response = self.llm_config.llm.invoke(prompt)
             resposta = response.content.strip()
+            resposta_do_bot = resposta # Guarda a resposta para salvar
 
             # 4. Adiciona a resposta da IA ao histórico
             self.history_manager.add_message(user_id, resposta, is_user=False)
+            # **Salva a resposta do bot no DB.**
+            await self.data_service.salvar_mensagem(user_id, resposta, origem='bot')
+
             await update.message.reply_text(resposta)
-            return resposta
+            return True # Retorna True para indicar sucesso/tratamento ANTES resposta
 
         except Exception as e:
-            logger.error(
-                f"Erro ao chamar a API da Inteligência Artificial em handle_generico: {e}")
-            nome = self.data_service.get_nome_usuario(
-                user_id) or update.effective_user.first_name
+            logger.error(f"Erro na API da IA em handle_generico para user_id {user_id}: {e}", exc_info=True)
+            
+            db_nome = await self.data_service.get_nome_usuario(user_id)
+            if db_nome:
+                nome = db_nome
+
+            # Se a resposta do bot foi gerada, mas o salvamento falhou, 
+            # o bot ainda deve tentar enviar a mensagem de erro (ou a resposta se o erro foi no salvamento do bot).
             await update.message.reply_text(MESSAGES['GENERAL_ERROR'].format(nome=nome))
             return False

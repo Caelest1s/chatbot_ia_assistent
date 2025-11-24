@@ -17,7 +17,6 @@ from src.utils.constants import REQUIRED_SLOTS
 from src.config.logger import setup_logger
 logger = setup_logger(__name__)
 
-
 class SlotFillingManager:
     """[ASYNC] Gerencia o diálogo multi-turno para preencher os slots de agendamento (AGENDAR)"""
 

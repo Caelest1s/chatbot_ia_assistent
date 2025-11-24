@@ -28,14 +28,13 @@ async def create_main_bot() -> Main:
     """
 
     # --- 1. Inicialização da Infraestrutura ---
-
+   
     # Executa o init_db (criação de tabelas) antes de tudo
     logger.info("Iniciando sincronização de tabelas (init_db)...")
     await init_db(engine)
     logger.info("Sincronização de tabelas concluída.")
 
     # --- 2. Preparação das Dependências de API ---
-
     telegram_api_key = os.getenv('TELEGRAM_API_KEY')
     openai_api_key = os.getenv('OPENAI_API_KEY')
 
@@ -44,13 +43,11 @@ async def create_main_bot() -> Main:
     
     # --- 3. Inicialização de Serviços e Componentes Assíncronos ---
 
-    # Passamos o AsyncSessionLocal para o DataService
+    # 3.1. Serviços Base
     data_service = DataService(session_maker=AsyncSessionLocal)
-
-    # Chamada assíncrona que estava no __init__ da Main!
     services_list = await data_service.get_available_services_names()
 
-    # Componentes LLM e Histórico
+    # 3.2 Componentes LLM e Histórico
     history_manager = HistoryManager(
         system_message_content=MESSAGES['RESPOSTA_SUCINTA']
     )
@@ -64,7 +61,7 @@ async def create_main_bot() -> Main:
         data_service=data_service
     )
 
-    # Lógica de Negócios
+    # 3.3 Lógica de Negócios
     validator = AppointmentValidator()
     appointment_service = AppointmentService(
         data_service=data_service,
@@ -74,13 +71,13 @@ async def create_main_bot() -> Main:
         data_service=data_service
     )
 
-    # Gerenciador de Fluxo
+    # 3.4 Gerenciador de Fluxo
     slot_filling_manager = SlotFillingManager(
         data_service=data_service,
         appointment_service=appointment_service
     )
 
-    # Handlers do Telegram
+    # 3.5 Handlers do Telegram (Instância de classe com métodos roteados)
     bot_handlers = TelegramHandlers(
         data_service=data_service,
         llm_service=llm_service,
@@ -95,5 +92,17 @@ async def create_main_bot() -> Main:
         telegram_api_key=telegram_api_key,
         bot_handlers=bot_handlers
     )
+
+    # O start_command e contact_handler precisam desses serviços no `bot_data`.
+    telegram_app = main_instance.get_telegram_app()
+
+    # Injeta DataService e LLMService, que são usados no start_command
+    telegram_app.bot_data['data_service'] = data_service
+    telegram_app.bot_data['llm_service'] = llm_service
+
+    # O contact_handler (receive_contact_info) também precisa de data_service
+    # (data_service já está injetado acima, mas vale o lembrete)
+
+    logger.info("Dependências injetadas no Application.bot_data.")
 
     return main_instance

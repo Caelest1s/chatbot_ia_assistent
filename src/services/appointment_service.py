@@ -87,7 +87,6 @@ class AppointmentService:
     # =========================================================
     # FUNÇÃO DE VALIDAÇÃO DE SLOTS (Completa)
     # =========================================================
-
     async def validate_slots(self, slot_data: Dict) -> Tuple[bool, str, Optional[Dict]]:
         """
         [ASYNC] Valida todos os slots necessários (serviço, data, hora).

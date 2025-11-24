@@ -51,7 +51,7 @@ PROMPT_EXTRATOR_DADOS_AI = """
         (ex: 'corte de cabelo masculino').
         
         2. **Química:** 'progressiva', 'alisamento' ou 'definitiva' devem ser padronizados 
-        para **'alisamento permanente'** ou **'alisamento progressiva'**.
+        para **'escova progressiva'**.
         
         3. **Luzes:** 'mechas', 'reflexo' ou 'luzes' devem ser padronizados 
         para **'coloração parcial'** ou **'mechas e luzes'**.
@@ -110,6 +110,9 @@ VALIDATION_FORMAT_ERROR_DATE = "Desculpe, {nome}. Não consegui entender o forma
 ERROR_INTERNAL = "{nome}, ocorreu um erro interno ao processar seu pedido. Tente novamente mais tarde."
 ERROR_SERVICE_NOT_FOUND = "{nome}, desculpe, o serviço {servico_nome} não foi encontrado ou está inativo. " \
     "Por favor, tente outro nome."
+GENERAL_ERROR = "❌ Ops, {nome}. Ocorreu um erro interno em nosso sistema. " \
+    "Nossos assistentes foram notificados e faremos o possível para resolver o quanto antes. " \
+    "Por favor, tente novamente mais tarde!"
 
 # --- COMMONS MESSAGES ---
 AGENDAMENTO_FALHA_GENERICA = "Desculpe, não foi possível concluir o agendamento no momento devido a um problema interno. Tente novamente mais tarde ou seja mais específico."
@@ -144,6 +147,7 @@ MESSAGES = {
     'VALIDATION_FORMAT_ERROR_DATE': VALIDATION_FORMAT_ERROR_DATE,
     'ERROR_INTERNAL': ERROR_INTERNAL,
     'ERROR_SERVICE_NOT_FOUND': ERROR_SERVICE_NOT_FOUND,
+    'GENERAL_ERROR': GENERAL_ERROR,
 
     # --- COMMONS MESSAGES ---
     'AGENDAMENTO_FALHA_GENERICA': AGENDAMENTO_FALHA_GENERICA,
