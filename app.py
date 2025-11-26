@@ -13,9 +13,6 @@ from src.config.logger import setup_logger
 load_dotenv('./config/.env')
 logger = setup_logger(__name__)
 
-# Variável global para manter a referência do bot configurado
-TELEGRAM_APP: Application = None
-
 # --- Lifespan: Gerencia startup e shutdown do bot ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,18 +23,18 @@ async def lifespan(app: FastAPI):
     main_instance = await create_main_bot()
 
     # 2. Obtém a instância do Application configurada
-    global TELEGRAM_APP
-    TELEGRAM_APP = main_instance.get_telegram_app()
-
+    telegram_app: Application = main_instance.get_telegram_app()
+    app.state.telegram_app = telegram_app
     logger.info("Iniciando bot com polling async (FastAPI Lifespan)...")
 
     # 3. Inicializa e Inicia o Polling
-    await TELEGRAM_APP.initialize()
-    await TELEGRAM_APP.start()
+    bot_app: Application = app.state.telegram_app
+    await bot_app.initialize()
+    await bot_app.start()
 
     # IMPORTANTE: Usamos o método do updater para rodar o polling dentro do loop do FastAPI
     # Isso é a forma estável de rodar o polling assíncrono (como você descobriu no teste).
-    await TELEGRAM_APP.updater.start_polling(
+    await bot_app.updater.start_polling(
         drop_pending_updates=True
     )
 
@@ -48,10 +45,16 @@ async def lifespan(app: FastAPI):
     finally:
         # === SHUTDOWN ===
         logger.info("Parando o bot e limpando recursos...")
-        if TELEGRAM_APP.updater and TELEGRAM_APP.updater.running:
-            await TELEGRAM_APP.updater.stop()
-        await TELEGRAM_APP.stop()
-        await TELEGRAM_APP.shutdown()
+
+        bot_app_to_stop: Application | None = getattr(app.state, 'telegram_app', None)
+
+        if bot_app_to_stop:
+            # O autocompletar funciona melhor com a variável local bot_app_to_stop
+            # Verifica e para o updater
+            if bot_app.updater and bot_app.updater.running:
+                await bot_app.updater.stop()
+            await bot_app.stop()
+            await bot_app.shutdown()
         logger.info("Shutdown completo.")
 
 # --- FastAPI com lifespan ---
@@ -63,7 +66,15 @@ app = FastAPI(
 # --- Endpoint de Saúde ---
 @app.get("/")
 async def root():
-    return {"status": "OK", "service": "Telegram Bot + FastAPI", "health": TELEGRAM_APP.running}
+    # 1. Acessa o objeto Application do estado. Ele será do tipo Application ou None.
+    # O getattr evita AttributeError se o 'telegram_app' não existir no estado.
+    bot_app: Application | None = getattr(app.state, 'telegram_app', None)
+
+    # 2. Verifica o status 'running' do objeto Application
+    # Não há needade de 'app_running.running', apenas 'bot_app.running'
+    status = bot_app.running if bot_app else False
+
+    return {"status": "OK", "service": "Telegram Bot + FastAPI", "health": status}
 
 # O bot agora está totalmente isolado no Lifespan.
 # Você pode adicionar rotas da API aqui (ex: para dashboard) sem interromper o bot.

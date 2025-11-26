@@ -2,6 +2,8 @@
 import os
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from telegram.ext import Application, ApplicationBuilder, JobQueue
+
 from src.database.base import init_db
 from src.database.session import engine, AsyncSessionLocal
 from src.bot.main import Main
@@ -20,6 +22,19 @@ from src.bot.telegram_handlers import TelegramHandlers
 
 from src.config.logger import setup_logger
 logger = setup_logger(__name__)
+
+# --- Função para criar a aplicação do Telegram com JobQueue ---
+def create_telegram_application(token: str) -> Application:
+    """Cria a instância do telegram.ext.Application com JobQueue configurado."""
+    # Cria o JobQueue
+    job_queue = JobQueue()
+
+    # Constrói o Application, anexando o JobQueue
+    application = (ApplicationBuilder().token(token)
+                   .job_queue(job_queue) # <-- CONFIGURAÇÃO ESSENCIAL
+                   .build())
+
+    return application
 
 async def create_main_bot() -> Main:
     """
@@ -85,16 +100,24 @@ async def create_main_bot() -> Main:
         slot_filling_manager=slot_filling_manager
     )
 
+    # Criação da Aplicação do Telegram com JobQueue ---
+    telegram_app = create_telegram_application(telegram_api_key)
+    logger.info("Instância Application do Telegram criada com JobQueue")
+
     # --- 4. Criação e Retorno da Instância Main ---
 
     # A Main agora recebe apenas as dependências já construídas
     main_instance = Main(
-        telegram_api_key=telegram_api_key,
-        bot_handlers=bot_handlers
+        telegram_app=telegram_app # <-- Usar o objeto Application criado
+        , bot_handlers=bot_handlers
     )
 
     # O start_command e contact_handler precisam desses serviços no `bot_data`.
-    telegram_app = main_instance.get_telegram_app()
+    # O objeto telegram_app é o mesmo que você acabou de criar.
+    # Você não precisa mais chamar main_instance.get_telegram_app() se passar
+    # o objeto diretamente, mas se o método get_telegram_app for usado em outro 
+    # lugar, o código abaixo deve permanecer.
+    # ------------------------->   telegram_app = main_instance.get_telegram_app()   <-------------------------
 
     # Injeta DataService e LLMService, que são usados no start_command
     telegram_app.bot_data['data_service'] = data_service

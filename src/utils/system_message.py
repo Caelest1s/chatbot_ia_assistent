@@ -62,6 +62,12 @@ PROMPT_EXTRATOR_DADOS_AI = """
         
         6. **Sinônimos e Erros de Digitação:** Corrija erros e use o termo mais formal ou completo 
         (ex: 'massage' -> 'massagem terapêutica').
+
+        7. **RESOLUÇÃO DE AMBIGUIDADE PENDENTE:** Se a MEMÓRIA ATUAL contém o objeto `ambiguous_service_options` 
+        E a mensagem do usuário for uma resposta curta (ex: 'masculino', 'feminino'), 
+        VOCÊ DEVE USAR esta resposta para **completar o nome do serviço canônico** e substituir o `servico_nome` original (que é o termo ambíguo) pelo nome completo e correto. 
+        Exemplo: Memória: `"servico_nome": "corte de cabelo"`. Mensagem: `"masculino"`. 
+        Saída: `"servico_nome": "Corte de Cabelo Masculino"`.
         \n\n
 
         O campo 'intent' deve ser AGENDAR, BUSCAR_SERVICO ou GENERICO.

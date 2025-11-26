@@ -17,12 +17,12 @@ class Main:
     """
 
     # O __init__ agora recebe as dependências já construídas do Factory
-    def __init__(self,  telegram_api_key: str, bot_handlers: TelegramHandlers):
+    def __init__(self,  telegram_app: Application, bot_handlers: TelegramHandlers):
         # 1. Inicializar os Handlers (Recebidos como DI)
         self.bot_handlers = bot_handlers
 
         # 2. Inicializar o Aplicativo do Telegram
-        self.app = Application.builder().token(telegram_api_key).build()
+        self.app = telegram_app # <-- AGORA RECEBE A INSTÂNCIA PRONTA DO FACTORY
         self._add_handlers()
 
     def _add_handlers(self):
@@ -50,3 +50,8 @@ class Main:
     def get_telegram_app(self) -> Application:
         """Retorna a instância do Application Builder configurada com os handlers."""
         return self.app
+    
+    def run(self):
+        """Método para iniciar o polling do bot."""
+        logger.info("Iniciando o bot...")
+        self.app.run_polling()

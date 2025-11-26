@@ -24,4 +24,4 @@ class Servico(Base):
     agendamentos: Mapped[list["Agenda"]] = relationship("Agenda", back_populates="servico")
 
     def __repr__(self):
-        return f"<Servico(id={self.servico_id}, nome='{self.nome}', preco={self.preco})>"
+        return f"<Servico(id={self.servico_id}, nome='{self.nome}', preco={self.preco} duração={self.duracao_minutos})>"

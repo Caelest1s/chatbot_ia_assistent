@@ -13,15 +13,15 @@ INSERT INTO historico (user_id, conversas, created_at) VALUES
 (1003, 'Usuário: Vocês fazem progressiva? Bot: Sim, Maria! A escova progressiva custa R$150,00. Deseja agendar?', CURRENT_TIMESTAMP);
 
 -- Populando a tabela servicos
-INSERT INTO servicos (servico_id, nome, descricao, preco, duracao_minutos, ativo) VALUES
-(1, 'Corte de Cabelo Feminino', 'Corte de cabelo personalizado para mulheres, inclui lavagem e finalização.', 50.00, 45, TRUE),
-(2, 'Corte de Cabelo Masculino', 'Corte masculino com tesoura ou máquina, inclui lavagem.', 35.00, 30, TRUE),
-(3, 'Coloração', 'Tingimento completo do cabelo com produtos de alta qualidade.', 120.00, 90, TRUE),
-(4, 'Manicure', 'Corte, lixamento e esmaltação das unhas das mãos.', 30.00, 40, TRUE),
-(5, 'Pedicure', 'Corte, lixamento e esmaltação das unhas dos pés.', 35.00, 45, TRUE),
-(6, 'Escova Progressiva', 'Alisamento temporário com produtos sem formol.', 150.00, 120, TRUE),
-(7, 'Hidratação Capilar', 'Tratamento intensivo para cabelos ressecados.', 80.00, 60, TRUE),
-(8, 'Maquiagem', 'Maquiagem profissional para eventos.', 100.00, 60, TRUE);
+INSERT INTO servicos (servico_id, nome, descricao, preco, duracao_minutos, ativo, is_featured, created_at, updated_at) VALUES
+(1, 'Corte de Cabelo Feminino', 'Corte de cabelo personalizado para mulheres, inclui lavagem e finalização.', 50.00, 45, TRUE, FALSE, '2025-10-20', '2025-10-20'),
+(2, 'Corte de Cabelo Masculino', 'Corte masculino com tesoura ou máquina, inclui lavagem.', 35.00, 30, TRUE, FALSE, '2025-10-20', '2025-10-20'),
+(3, 'Coloração', 'Tingimento completo do cabelo com produtos de alta qualidade.', 120.00, 90, TRUE, FALSE, '2025-10-20', '2025-10-20'),
+(4, 'Manicure', 'Corte, lixamento e esmaltação das unhas das mãos.', 30.00, 40, TRUE, FALSE, '2025-10-20', '2025-10-20'),
+(5, 'Pedicure', 'Corte, lixamento e esmaltação das unhas dos pés.', 35.00, 45, TRUE, FALSE, '2025-10-20', '2025-10-20'),
+(6, 'Escova Progressiva', 'Alisamento temporário com produtos sem formol.', 150.00, 120, TRUE, FALSE, '2025-10-20', '2025-10-20'),
+(7, 'Hidratação Capilar', 'Tratamento intensivo para cabelos ressecados.', 80.00, 60, TRUE, FALSE, '2025-10-20', '2025-10-20'),
+(8, 'Maquiagem', 'Maquiagem profissional para eventos.', 100.00, 60, TRUE, FALSE, '2025-10-20', '2025-10-20');
 
 -- Populando a tabela agenda
 INSERT INTO agenda (user_id, servico_id, hora_inicio, hora_fim, data, status) VALUES
