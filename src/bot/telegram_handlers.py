@@ -169,11 +169,14 @@ class TelegramHandlers:
             return
 
         user_id = update.effective_user.id
+        original_question = update.message.text
+
+        # Variável de controle para saber se a mensagem foi tratada por algum fluxo
+        handled_message = False
 
         # 1. Recuperar o estado da sessão atual
         session_state = await self.data_service.get_session_state(user_id)
         current_intent = session_state.get('current_intent')
-        original_question = update.message.text
         # RECUPERA OS SLOTS ATUAIS DA SESSÃO
         current_slots = session_state.get('slot_data', {})
 
@@ -201,14 +204,16 @@ class TelegramHandlers:
         #                   5. Roteamento baseado na Intenção Extraída ou Corrigida
         # ===============================================================================================
         if dados_estruturados.intent == 'AGENDAR':
-            return await self.slot_filling_manager.handle_slot_filling(update, context, dados_estruturados)
+            await self.slot_filling_manager.handle_slot_filling(update, context, dados_estruturados)
+            handled_message = True
 
         elif dados_estruturados.intent == 'BUSCAR_SERVICO':
             # Limpa o estado se a intenção for alterada, para não misturar fluxos.
             if current_intent and current_intent != 'BUSCAR_SERVICO':
                 await self.data_service.clear_session_state(user_id)
 
-            return await self.service_finder.handle_buscar_servicos_estruturado(update, context, dados_estruturados)
+            await self.service_finder.handle_buscar_servicos_estruturado(update, context, dados_estruturados)
+            handled_message = True
 
         # 6. Resposta Padrão (GENERICO ou falha no tratamento)
         elif dados_estruturados.intent == 'GENERICO' or (dados_estruturados.intent is None):
@@ -216,13 +221,21 @@ class TelegramHandlers:
             # Limpa o estado se sair de um fluxo estruturado.
             if current_intent and current_intent != 'GENERICO':
                 await self.data_service.clear_session_state(user_id)
-            return await self.llm_service.handle_generico(update, context)
+            await self.llm_service.handle_generico(update, context)
+            handled_message = True
 
-        # Fallback Final
-        await update.message.reply_text("Desculpe, não entendi o que você quis dizer. Por favor, tente de outra forma.")
-        
-        # 7. 💥 NOVO: Rearranja o Timer de Inatividade
-        self._set_inactivity_timer(user_id, context)
+        # ===============================================================================================
+        #                               7. Timer e Fallback Final
+        # ===============================================================================================
+        if handled_message:
+            # SUCESSO: Rearranja o Timer de Inatividade
+            # Esta linha garante que o timer seja setado apenas após uma interação bem-sucedida
+            self._set_inactivity_timer(user_id, context)
+        else:
+            # FALLBACK: Se handled_message ainda for False, a mensagem não foi reconhecida por nenhum fluxo.
+            await update.message.reply_text("Desculpe, não entendi o que você quis dizer. Por favor, tente de outra forma.")
+            # O timer de inatividade pode ser setado aqui também, pois é uma resposta final do bot.
+            self._set_inactivity_timer(user_id, context)
         
         return True
     
