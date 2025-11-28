@@ -25,16 +25,16 @@ class MensagemRepository:
         self.default_system_msg = default_system_msg # Mensagem de sistema para o LLM
 
 
-    async def get_usuario_pk(self, user_id_app: int) -> Optional[int]:
+    async def get_usuario_pk(self, telegram_user_id: int) -> Optional[int]:
         """
         Busca a Chave Primária (PK) interna do usuário (`Usuario.id`) 
         dado o ID externo (`user_id_telegram`).
         """
-        stmt = select(Usuario.id).where(Usuario.user_id == user_id_app)
+        stmt = select(Usuario.id).where(Usuario.user_id == telegram_user_id)
         return await self.session.scalar(stmt)
     
 
-    async def salvar_mensagem(self, user_id_app: int, conteudo: str, origem: str) -> None:
+    async def salvar_mensagem(self, telegram_user_id: int, conteudo: str, origem: str) -> None:
         """
         Salva uma ÚNICA mensagem no banco de dados, indicando a origem.
         
@@ -46,22 +46,20 @@ class MensagemRepository:
             return
         
         # 1. Busca a Chave Primária (PK) interna do usuário
-        usuario_pk = await self.get_usuario_pk(user_id_app)
+        usuario_pk = await self.get_usuario_pk(telegram_user_id)
 
         if usuario_pk is None:
-            logger.error(f"Não foi possível salvar mensagem. Usuário com ID {user_id_app} não encontrado.")
-            # Um erro será levantado pelo DataService, mas logamos aqui para contexto.
-            raise ValueError(f"Usuário não registrado (ID {user_id_app}).")
+            logger.error(f"Não foi possível salvar mensagem. Usuário com ID {telegram_user_id} não encontrado.")
+            # **Este raise é o que garante o ROLLBACK e a notificação de erro no LLMService**
+            raise ValueError(f"Usuário não registrado (ID {telegram_user_id}).")
         
         # 2. Cria e adiciona a nova mensagem
         nova_mensagem = Mensagem(usuario_id=usuario_pk, conteudo=conteudo, origem=origem)
         self.session.add(nova_mensagem)
-
-        # O commit é de responsabilidade da camada de Serviço (DataService)
         logger.info(f"Mensagem de '{origem}' para usuário {usuario_pk} preparada para commit.")
 
 
-    async def get_historico_llm(self, user_id_app: int, limit: int = 20) -> list[dict[str, str]]:
+    async def get_historico_llm(self, telegram_user_id: int, limit: int = 20) -> list[dict[str, str]]:
         """
         Recupera o histórico de conversas do usuário, formatado para o LLM (chat history).
         Retorna as últimas 'limit' mensagens, na ordem correta (antiga -> nova).
@@ -73,10 +71,10 @@ class MensagemRepository:
         }]
 
         # 2. Busca a Chave Primária (PK) interna do usuário
-        usuario_pk = await self.get_usuario_pk(user_id_app)
+        usuario_pk = await self.get_usuario_pk(telegram_user_id)
 
         if usuario_pk is None:
-            logger.warning(f"Usuário {user_id_app} não encontrado ao buscar histórico. Retornando system prompt.")
+            logger.warning(f"Usuário {telegram_user_id} não encontrado ao buscar histórico. Retornando system prompt.")
             return historico_formatado
         
         # 3. Busca as N últimas mensagens (usuário e bot)
@@ -99,14 +97,14 @@ class MensagemRepository:
         # Retorna o System Prompt + as mensagens da conversa
         return historico_formatado + mensagens_llm
     
-    async def clear_historico(self, user_id_app: int) -> None:
+    async def clear_historico(self, telegram_user_id: int) -> None:
         """
         Remove todas as mensagens persistentes do usuário.
         """
-        usuario_pk = await self.get_usuario_pk(user_id_app)
+        usuario_pk = await self.get_usuario_pk(telegram_user_id)
 
         if usuario_pk is None:
-            logger.warning(f"Tentativa de limpar histórico para usuário não existente (ID {user_id_app}).")
+            logger.warning(f"Tentativa de limpar histórico para usuário não existente (ID {telegram_user_id}).")
             return
 
         # 1. Deleta todas as mensagens associadas à PK (FK)

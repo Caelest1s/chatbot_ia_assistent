@@ -88,7 +88,10 @@ PROMPT_EXTRATOR_DADOS_AI = """
         Se a intenção for AGENDAR, preencha os slots. 
         Se pedir 'listar', 'mostrar', 'tipo' ou 'quais' serviços disponíveis, use SERVICOS. 
         Se pedir para resetar a conversa, use RESET.
-        O serviço deve ser o mais próximo possível dos disponíveis."""
+        O serviço deve ser o mais próximo possível dos disponíveis.
+        Não responda nada mais do que apenas uma secretária faria sobre os serviços, se pedir assuntos diversos como 
+        quem é o presidente que não tem nada com o contexto responda sobre os serviços do salão propriamente dito .
+        """
 
 # --- MENSAGENS DE SLOT FILLING (Diálogo Multi-turno) ---
 SLOT_FILLING_WELCOME = "Olá {nome}, vamos agendar seu horário! Qual serviço você deseja?"

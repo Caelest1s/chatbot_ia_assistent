@@ -32,6 +32,17 @@ class TelegramHandlers:
         self.service_finder = service_finder
         self.slot_filling_manager = slot_filling_manager
 
+    async def _ensure_user_registered(self, user_id: int, nome: str):
+        """
+        Garanta que o usuário existe no DB antes de qualquer operação de persistência.
+        Não limpa histórico/sessão, apenas cria ou atualiza o registro.
+        """
+        # Chama o DataService para salvar/atualizar o usuário. 
+        # O salvar_usuario no DataService/UserRepository fará a checagem se o registro
+        # existe e o criará/atualizará se necessário, com commit.
+        await self.data_service.salvar_usuario(user_id=user_id, nome=nome, telefone=None)
+        logger.debug(f"Registro de usuário {user_id} garantido (criado ou atualizado).")
+    
     async def _get_user_name(self, user_id: int, update: Update) -> str:
         """Helper para obter o nome do usuário do DB ou do Telegram (fallback)."""
         # Prioriza o nome salvo no DB para consistência
@@ -116,7 +127,7 @@ class TelegramHandlers:
         await self.data_service.clear_session_state(user_id)
         await self.data_service.clear_historico(user_id)
 
-        # 💥 Adicionar: Remove o timer existente ao resetar
+        # Remove o timer existente ao resetar
         self._remove_inactivity_timer(user_id, context.application.job_queue)
 
         await update.message.reply_text('Conversação e estado de agendamento reiniciados. Pode perguntar algo novo!')
@@ -156,7 +167,7 @@ class TelegramHandlers:
 
         await update.message.reply_text(MESSAGES['SLOT_FILLING_WELCOME'].format(nome=nome))
 
-        # 💥 Adicionar: Reagenda o timer para o usuário ter 10 minutos para iniciar o agendamento
+        # Reagenda o timer para o usuário ter 10 minutos para iniciar o agendamento
         self._set_inactivity_timer(user_id, context)
 
     # ======================================================================================================
@@ -170,6 +181,9 @@ class TelegramHandlers:
 
         user_id = update.effective_user.id
         original_question = update.message.text
+        nome = update.effective_user.first_name
+
+        await self._ensure_user_registered(user_id, nome)
 
         # Variável de controle para saber se a mensagem foi tratada por algum fluxo
         handled_message = False
@@ -221,6 +235,7 @@ class TelegramHandlers:
             # Limpa o estado se sair de um fluxo estruturado.
             if current_intent and current_intent != 'GENERICO':
                 await self.data_service.clear_session_state(user_id)
+            # A chamada a handle_generico inclui o salvamento da mensagem no DB,
             await self.llm_service.handle_generico(update, context)
             handled_message = True
 

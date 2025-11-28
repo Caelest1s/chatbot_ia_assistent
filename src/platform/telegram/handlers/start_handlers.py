@@ -27,6 +27,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handler do comando /start. Gerencia o registro inicial, 
     limpa o histórico e solicita o telefone se necessário.
     """
+    if not update.effective_user or not update.message:
+        return
+
     user_id = update.effective_user.id
     nome = update.effective_user.first_name
     
@@ -39,17 +42,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 2. ✅ Lógica de Registro e Limpeza
     
-    # Salva ou atualiza o usuário no DB (sem telefone por enquanto, pois ainda não foi coletado)
-    await data_service.salvar_usuario(user_id=user_id, nome=nome)
+    # Salva ou atualiza o usuário no DB, garantindo que o registro exista. 
+    # Passamos telefone=None, pois não o coletamos no /start.
+    await data_service.salvar_usuario(user_id=user_id, nome=nome, telefone=None)
     
-    # Limpa o histórico da LLM para garantir um novo começo
+    # Limpa estados
     llm_service.history_manager.reset_history(user_id)
-    
-    # Limpa o estado da sessão de agendamento (garantir que não há slots preenchidos)
-    await data_service.clear_session_state(user_id)
-
-    # 💥 NOVO: LIMPA O HISTÓRICO PERSISTENTE (mensagens salvas no DB)
-    await data_service.clear_historico(user_id)
+    await data_service.clear_session_state(user_id) # Sessão de agendamento (garantir que não há slots preenchidos)
+    await data_service.clear_historico(user_id) # HISTÓRICO PERSISTENTE (mensagens salvas no DB)
     
     # 3. 📞 Checagem do Telefone
     

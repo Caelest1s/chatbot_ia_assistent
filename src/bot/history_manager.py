@@ -6,6 +6,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Adicione o DataService (ou o repo de mensagens) ao construtor:
 class HistoryManager:
     """Gerencia o histórico de conversas em memória, aplicando janela deslizante."""
     def __init__(self, system_message_content: str, max_length: int = 5):

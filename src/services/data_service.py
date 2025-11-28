@@ -3,8 +3,7 @@ import logging
 from src.config.logger import setup_logger
 import json
 
-from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
 
 # Importações do SQLAlchemy
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
@@ -153,7 +152,7 @@ class DataService:
             repositories = self._get_repos(session)
             return await repositories["session_repo"].get_session_state(user_id)
 
-    async def update_session_state(self, user_id: int, current_intent: Optional[str] = None, slot_data: Optional[Dict] = None):
+    async def update_session_state(self, user_id: int, current_intent: Optional[str] = None, slot_data: Optional[dict] = None):
         """Atualiza o estado da sessão e comita em uma transação."""
         if slot_data is None and current_intent is None:
             return
@@ -262,7 +261,7 @@ class DataService:
                 shift_name=shift_name
             )
 
-    async def get_service_details_by_name(self, servico_nome: str) -> Optional[Dict]:
+    async def get_service_details_by_name(self, servico_nome: str) -> Optional[dict]:
         """
         [ASYNC] Busca o ID, nome e duração de um serviço ativo pelo seu nome.
         Depende de um novo método em AgendaRepository.
@@ -280,7 +279,7 @@ class DataService:
                 }
             return None
 
-    async def update_slot_data(self, user_id: int, slot_key: str, slot_value: Any):
+    async def update_slot_data(self, user_id: int, slot_key: str, slot_value: any):
         """
         [ASYNC] Atualiza ou remove (se slot_value for None) um slot 
         específico na sessão do usuário. Comita em uma transação.
@@ -294,7 +293,7 @@ class DataService:
 
                     if user_session and user_session.slot_data:
                         # slot_data é string JSON no modelo, precisa de (de)serialização
-                        slot_data: Dict = json.loads(user_session.slot_data)
+                        slot_data: dict = json.loads(user_session.slot_data)
 
                         if slot_value is None:
                             slot_data.pop(slot_key, None)
