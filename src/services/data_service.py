@@ -3,7 +3,8 @@ import logging
 from src.config.logger import setup_logger
 import json
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+from datetime import date
 
 # Importações do SQLAlchemy
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
@@ -12,6 +13,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from src.database.repositories import UserRepository, AgendaRepository, SessionRepository, MensagemRepository
 from src.utils import MESSAGES
 
+# Importar dependências de serviço
+from src.services.slot_processor_service import SlotProcessorService
+
+# Use TYPE_CHECKING para evitar erro de importação circular no runtime
+if TYPE_CHECKING:
+    from src.bot.llm_service import LLMService
+
 # Configuração do logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,30 +27,19 @@ logger = setup_logger(__name__)
 
 
 class DataService:
-    """
-    Coordenador de Repositórios de Dados.
-    Responsável por gerenciar o acesso aos diferentes repositórios de dados 
-    e o ciclo de vida da sessão assíncrona (AsyncSession).
-    """
+    """Coordenador de Repositórios de Dados e Orquestrador do Processamento LLM/Slots."""
 
-    def __init__(self, session_maker: async_sessionmaker[AsyncSession]):
-        """
-        Recebe o criador de sessões assíncronas como dependência.
-        """
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], llm_service: Optional['LLMService'] = None):
+        """Recebe o criador de sessões assíncronas e o LLMService como dependências."""
         self._session_maker = session_maker
-        logger.info(
-            "Database (Coordenador Assíncrono) inicializado com sucesso.")
+        self._llm_service: Optional[LLMService] = llm_service
+        logger.info("Database (Coordenador Assíncrono) inicializado com sucesso.")
 
-        self.resposta_sucinta = MESSAGES.get(
-            'RESPOSTA_SUCINTA', "Olá! Como posso ajudar você hoje?")
+        self.resposta_sucinta = MESSAGES.get('RESPOSTA_SUCINTA', "Olá! Como posso ajudar você hoje?")
 
     def _get_session(self) -> AsyncSession:
-        """
-        Retorna uma nova sessão assíncrona (objeto que implementa o 
-        Asynchronous Context Manager, a ser usado com 'async with').
-        """
-        # Apenas chame a factory de sessão. Isso retorna o AsyncSession
-        # que será gerenciado pelo 'async with' em cada método.
+        """Retorna uma nova sessão assíncrona"""
+        # chama a factory de sessão. Isso retorna o AsyncSession
         return self._session_maker()
 
     def _get_repos(self, session: AsyncSession) -> dict:
@@ -53,6 +50,56 @@ class DataService:
             , "session_repo": SessionRepository(session)
             ,"mensagem_repo": MensagemRepository(session, self.resposta_sucinta)
         }
+    
+    # =========================================================
+    # FLUXO PRINCIPAL: PROCESSAMENTO DA RESPOSTA LLM (NOVO)
+    # =========================================================
+    async def process_llm_response(self, user_id: int, user_message: str) -> dict:
+        """
+        Orquestra o ciclo de extração de slots:
+        1. Recupera o estado da sessão.
+        2. Chama a LLM para extração de slots.
+        3. Pós-processa os slots (Resolução/Enriquecimento).
+        4. Salva o novo estado da sessão no banco de dados.
+
+        Retorna os slots processados (dicionário).
+        """
+        # A sessão é aberta para as leituras iniciais (estado)
+        async with self._get_session() as session:
+            repositories = self._get_repos(session)
+            session_repo = repositories['session_repo']
+
+            # 1. Recupera o estado atual da sessão
+            session_state = await session_repo.get_session_state(user_id)
+            current_slots = session_state.get('slot_data', {})
+            current_intent = session_state.get('current_intent', 'GENERICO')
+
+            if self._llm_service is None:
+                raise RuntimeError("LLMService não foi injetado no DataService. O ciclo de dependência falhou.")
+
+        # 2. Chama a LLM para extração de slots
+        llm_extracted_pydantic = await self._llm_service.extract_intent_and_data(
+            user_message, current_slots
+        )
+
+        # 3. Pós-processamento e Resolução de Slots
+        slot_processor = SlotProcessorService(data_service=self)
+
+        # Executa a transformação e enriquecimento dos slots
+        processed_slots: dict = await slot_processor.process_slots(llm_extracted_pydantic)
+
+        # A intenção primária vem do LLM
+        new_intent = llm_extracted_pydantic.intent or current_intent
+
+        # 4. Salva o Novo Estado da Sessão (transacional)
+        # O update_session_state já abre uma nova sessão e transação para salvar.
+        await self.update_session_state(
+            user_id=user_id
+            , current_intent=new_intent
+            , slot_data=processed_slots
+        )
+
+        return processed_slots
 
     # =========================================================
     # FUNÇÕES DE USUÁRIO (PROXY para UserRepository)
@@ -82,7 +129,7 @@ class DataService:
                     # Re-lança a exceção para que o bloco session.begin() faça o ROLLBACK.
                     raise
 
-    # ✅ NOVO MÉTODO: BUSCAR TELEFONE
+    # BUSCAR TELEFONE
     async def get_telefone_usuario(self, user_id: int) -> Optional[str]:
         """
         Recupera o número de telefone do usuário pelo ID. Usado para checagem de onboarding.
@@ -284,36 +331,43 @@ class DataService:
         [ASYNC] Atualiza ou remove (se slot_value for None) um slot 
         específico na sessão do usuário. Comita em uma transação.
         """
+
+        # 1. Busca o estado atual para mesclagem no DataService (ou dependa do Repositório)
+        # O SessionRepository.update_session_state já lida com a mesclagem de dicionários,
+        # mas precisamos garantir que estamos enviando o dicionário de mesclagem correto.
+
         async with self._get_session() as session:
+            repositories = self._get_repos(session)
+            session_repo = repositories['session_repo']
+
+            # 1. Recupera o estado atual para saber qual mesclagem aplicar
+            current_state = await session_repo.get_session_state(user_id)
+            slot_data: dict = current_state.get('slot_data', {})
+
+            # 2. Aplica a modificação específica no dicionário
+            if slot_value is None:
+                slot_data.pop(slot_key, None) # Remove a chave se o valor for None
+                logger.debug(f"Slot '{slot_key}' removido para o usuário {user_id}")
+            else:
+                slot_data[slot_key] = slot_value # Atualiza a chave
+                logger.debug(f"Slot '{slot_key}' atualizado para o usuário {user_id}")
+
+            # 3. Usa o método transacional de atualização do DataService
+            # Chamar o update_session_state aqui é mais limpo, mas ele precisa ser transacional.
+            
+            # Como este método já é transacional, vamos chamar o repositório diretamente:
             async with session.begin():
                 try:
-                    session_repo = self._get_repos(session)['session_repo']
-
-                    user_session = await session_repo.get_by_id(user_id)
-
-                    if user_session and user_session.slot_data:
-                        # slot_data é string JSON no modelo, precisa de (de)serialização
-                        slot_data: dict = json.loads(user_session.slot_data)
-
-                        if slot_value is None:
-                            slot_data.pop(slot_key, None)
-                        else:
-                            slot_data[slot_key] = slot_value
-
-                        # Atualiza o objeto do modelo
-                        await session_repo.update_session_state(
-                            user_id=user_id,
-                            current_intent=user_session.current_intent,
-                            slot_data=slot_data
-                        )
-
-                        logger.debug(
-                            f"Slot '{slot_key}' atualizado/removido para o usuário {user_id}")
-                    else:
-                        logger.warning(
-                            f"Sessão de usuário {user_id} não encontrada para atualizar slot.")
+                    # Atualiza o objeto do modelo
+                    await session_repo.update_session_state(
+                        user_id=user_id,
+                        # Mantém a intenção atual
+                        current_intent=current_state.get('current_intent'),
+                        # Passa o dicionário mesclado
+                        slot_data=slot_data
+                    )
+                    logger.info(f"Slot '{slot_key}' persistido com sucesso para o usuário {user_id}.")
 
                 except Exception as e:
-                    logger.error(
-                        f"Erro transacional ao atualizar slot {slot_key}: {e}")
+                    logger.error(f"Erro transacional ao atualizar slot {slot_key}: {e}")
                     raise

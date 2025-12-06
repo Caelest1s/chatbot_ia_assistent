@@ -1,6 +1,6 @@
 # src/database/repositories/session_repo.py
 from src.config.logger import setup_logger
-from typing import Optional, Dict, Any
+from typing import Optional
 
 # Importações Assíncronas
 from sqlalchemy import select, update, func
@@ -22,7 +22,7 @@ class SessionRepository(BaseRepository[UserSession]):
         super().__init__(session, UserSession)
         # O self.session agora é a AsyncSession ativa
 
-    async def get_session_state(self, user_id: int) -> Dict[str, Any]:
+    async def get_session_state(self, user_id: int) -> dict[str, any]:
         """Recupera o estado atual da sessão (intenção e slots preenchidos) de forma assíncrona."""
 
         # 1. Busca o objeto UserSession pela Chave Primária (user_id)
@@ -41,7 +41,7 @@ class SessionRepository(BaseRepository[UserSession]):
     async def update_session_state(self,
                              user_id: int,
                              current_intent: Optional[str] = None,
-                             slot_data: Optional[Dict] = None):
+                             slot_data: Optional[dict] = None):
         """Atualiza o estado da sessão (INSERT/UPDATE) de forma assíncrona."""
 
         if slot_data is None and current_intent is None:
@@ -56,7 +56,7 @@ class SessionRepository(BaseRepository[UserSession]):
             new_slot_data = session_obj.slot_data.copy() if session_obj.slot_data else {}
 
             # Mescla os slots
-            if slot_data:
+            if slot_data: # <--- Mescla o estado NOVO passado
                 for key, value in slot_data.items():
                     if value is not None:
                         new_slot_data[key] = value
@@ -64,7 +64,7 @@ class SessionRepository(BaseRepository[UserSession]):
             if current_intent is not None:
                 session_obj.current_intent = current_intent
 
-            session_obj.slot_data = new_slot_data
+            session_obj.slot_data = new_slot_data # <--- Salva o resultado
 
             # O SQLAlchemy monitora as mudanças no objeto e as enviará no commit
 

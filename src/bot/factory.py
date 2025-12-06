@@ -1,6 +1,8 @@
 # # src/bot/factory.py
 import os
 
+from typing import Optional
+
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from telegram.ext import Application, ApplicationBuilder, JobQueue
 
@@ -19,6 +21,7 @@ from src.services.appointment_service import AppointmentService
 from src.services.service_finder import ServiceFinder
 from src.bot.slot_filling_manager import SlotFillingManager
 from src.bot.telegram_handlers import TelegramHandlers
+from src.services.slot_processor_service import SlotProcessorService
 
 from src.config.logger import setup_logger
 logger = setup_logger(__name__)
@@ -58,8 +61,9 @@ async def create_main_bot() -> Main:
     
     # --- 3. Inicialização de Serviços e Componentes Assíncronos ---
 
-    # 3.1. Serviços Base
+    # 3.1. Serviços Base (resolver Ciclo de Dependência)
     data_service = DataService(session_maker=AsyncSessionLocal)
+
     services_list = await data_service.get_available_services_names()
 
     # 3.2 Componentes LLM e Histórico
@@ -75,6 +79,9 @@ async def create_main_bot() -> Main:
         history_manager=history_manager,
         data_service=data_service
     )
+
+    data_service._llm_service = llm_service
+    logger.info("Ciclo de dependência resolvido: LLMService injetado tardiamente no DataService.")
 
     # 3.3 Lógica de Negócios
     validator = AppointmentValidator()

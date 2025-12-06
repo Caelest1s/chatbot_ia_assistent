@@ -21,9 +21,18 @@ PROMPT_EXTRATOR_DADOS_AI = """
 
         3. Só preencha ou altere um slot se o usuário mencionar algo novo sobre ele.
 
-        4. Formato de data: O formato de entrada de memória e a sua **SAÍDA FINAL**
-           devem sempre retornar no formato **"AAAA-MM-DD"** (ISO, ex: "2025-11-25").
-           Se o usuário usar DD/MM/AAAA ou DD-MM-AAAA, você deve **convertê-lo para ISO na saída**.
+        4. Formato de data: Sua **SAÍDA FINAL** para o campo 'data' deve ser:
+           - **Texto literal exatamente como o usuário digitou** para:
+             * Qualquer data sem ano completo (ex: "10/12", "5/3", "25/11", "01/09", "15-12")
+             * Datas relativas (ex: "hoje", "amanhã", "próxima segunda", "daqui a 5 dias", "daqui 3 dias")
+           - **"AAAA-MM-DD"** (ISO) **APENAS** se o usuário digitou a data com ano completo (ex: "10/12/2025", "25-11-2025")
+           
+           **IMPORTANTE:**
+           - NUNCA converta "10/12", "5/3" ou qualquer data DD/MM sem ano para ISO.
+           - Sempre mantenha como string literal (ex: "data": "10/12")
+           - O backend fará a conversão correta para o padrão brasileiro (dia/mês).
+           - Exemplo: usuário diz "10/12" → saía "data": "10/12" (não "2025-10-12")
+           - Exemplo: usuário diz "daqui a 5 dias" → "data": "daqui a 5 dias"
 
         5. Horário: use o formato "HH:MM" (ex: "13:30")
 

@@ -7,7 +7,6 @@ from datetime import date, datetime
 
 from src.services.data_service import DataService
 from src.services.appointment_service import AppointmentService
-from src.schemas.slot_extraction_schema import SlotExtraction
 
 from src.utils.json_utils import prepare_data_for_json
 
@@ -141,76 +140,29 @@ class SlotFillingManager:
 
         await update.message.reply_text(response)
 
-    async def handle_slot_filling(self, update: Update, context: ContextTypes.DEFAULT_TYPE, new_slots: SlotExtraction):
+    async def handle_slot_filling(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gerencia o fluxo principal do Slot Filling, incluindo a resolução de ambiguidades."""
 
         user_id = update.effective_user.id
         nome = await self.data_service.get_nome_usuario(user_id) or update.effective_user.first_name
 
+        # 1. Obtém o estado ATUALIZADO (que já contém os slots limpos e enriquecidos pelo DataService)
         session_state = await self.data_service.get_session_state(user_id)
         current_slots: dict[str, any] = session_state.get('slot_data', {})
         updated_slots = current_slots.copy()
 
-        # 1. Mesclar slots extraídos
-        for slot_name in REQUIRED_SLOTS:
-            slot_key = 'hora' if slot_name == 'hora_inicio' else slot_name
-
-            new_value = getattr(new_slots, slot_key, None)
-            if new_value is not None:
-                updated_slots[slot_name] = new_value.strip() if isinstance(new_value, str) else new_value
-
-        # =========================================================
-        # 1.5. 📅 TRATAMENTO DE DATA (NORMALIZAÇÃO E VALIDAÇÃO BÁSICA)
-        # =========================================================
-        data_input = updated_slots.get('data')
-
-        date_obj: Optional[date] = None
-        if isinstance(data_input, str):
-            data_str = data_input.strip()
-
-            # 1. Tenta o formato ISO (YYYY-MM-DD)
-            if len(data_str) == 10 and data_str.count('-') == 2:
-                try:
-                    date_obj = datetime.strptime(data_str, '%Y-%m-%d').date()
-                except ValueError:
-                    pass
-
-            # 2. Se não for ISO, tenta os formatos DD/MM/YYYY ou DD-MM-YYYY (input do usuário/LLM)
-            if date_obj is None:
-                # O validador agora retorna (sucesso, msg_erro, data_string_DD/MM/YYYY)
-                is_valid, msg_erro, data_str_dd_mm_yyyy = self.appointment_service.validator.normalize_date_format(data_str)
-
-                if is_valid and isinstance(data_str_dd_mm_yyyy, str):
-                    try:
-                        # Se for válido, converte a string normalizada de volta para objeto date
-                        date_obj = datetime.strptime(data_str_dd_mm_yyyy, '%d/%m/%Y').date()
-                    except ValueError:
-                        # Erro interno de conversão - deve ser tratado como falha
-                        is_valid = False
-                        msg_erro = "Erro interno no formato de data. Tente novamente."
-                
-                if not is_valid:
-                    # Falha de validação de formato
-                    await update.message.reply_text(msg_erro.format(nome=nome))
-                    updated_slots.pop('data', None)
-                    serializable_slots = prepare_data_for_json(updated_slots)
-                    await self.data_service.update_session_state(user_id, current_intent='AGENDAR'
-                                                                 , slot_data=serializable_slots)
-                    return True
-        
-        # O Caso em que data_input é um objeto date (para re-execução) foi removido pois 
-        # agora gravamos sempre como string ISO no final do bloco.
-        
-        # SE CHEGOU AQUI: temos um date_obj válido → gravamos SEMPRE como string ISO
-        if date_obj is not None:
-            updated_slots['data'] = date_obj.strftime('%Y-%m-%d') # SEMPRE string ISO no dict
+        if 'hora' in updated_slots:
+            # Renomeia 'hora' para 'hora_inicio' para consistência
+            # Usa .pop() para mover o valor e remover a chave antiga, evitando duplicidade
+            updated_slots['hora_inicio'] = updated_slots.pop('hora')
+            logger.debug(f"Slot 'hora' renomeado para 'hora_inicio' para validação final.")
 
         # 2. TRATAMENTO E VALIDAÇÃO DE SERVIÇO
         servico_nome_atual = updated_slots.get('servico_nome')
         session_ambiguity: Optional[dict[str, any]] = updated_slots.get(
             'ambiguous_service_options')
 
-        # 2.0. AJUSTE CRÍTICO: FORÇAR RESET DE AMBIGUIDADE PENDENTE
+        # FORÇAR RESET DE AMBIGUIDADE PENDENTE
         # Se um NOVO servico_nome foi extraído (e não é uma resposta a uma pergunta),
         # limpamos qualquer estado de ambiguidade persistente.
         is_new_service_term = servico_nome_atual and (
@@ -237,6 +189,7 @@ class SlotFillingManager:
             if len(resolved_servicos) == 1:
                 # Ambiguidade RESOLVIDA!
                 updated_slots['servico_nome'] = resolved_servicos[0]['nome']
+                updated_slots['servico_id'] = resolved_servicos[0]['servico_id']
                 updated_slots.pop('ambiguous_service_options', None)
             else:
                 # Ambiguidade NÃO resolvida
@@ -248,57 +201,6 @@ class SlotFillingManager:
                 await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
                 return True
 
-        # 2.2. Validar o Serviço (Detecção inicial, só executa se o serviço ainda não foi resolvido)
-        if servico_nome_atual and 'ambiguous_service_options' not in updated_slots:
-
-            servicos_encontrados = await self.data_service.buscar_servicos(servico_nome_atual)
-            if len(servicos_encontrados) == 0:
-                # Serviço não encontrado.
-                nomes_servicos = await self.data_service.get_available_services_names()
-
-                sugestao = ""
-                if nomes_servicos:
-                    if len(nomes_servicos) <= 4:
-                        sugestao = "\n\n👉 Nossos serviços principais são: " + \
-                            ", ".join(nomes_servicos[:4]) + "."
-                    else:
-                        sugestao = "\n\n👉 Você pode usar o comando /servicos para ver a lista completa."
-
-                resposta_erro = MESSAGES['VALIDATION_SERVICE_NOT_FOUND'].format(
-                    nome=nome, servico=servico_nome_atual)
-
-                resposta_completa = f"{resposta_erro}.{sugestao}"
-                await update.message.reply_text(resposta_completa)
-
-                updated_slots.pop('servico_nome', None)
-                await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=updated_slots)
-                return True
-
-            elif len(servicos_encontrados) > 1:
-                # Ambiguidade DETECTADA! (Primeira vez que o termo gera múltiplos resultados)
-
-                # 1. Salva o contexto de ambiguidade na sessão (ISSO JÁ OCORREU E ESTÁ NO SEU LOG)
-                updated_slots['ambiguous_service_options'] = {
-                    'original_term': servico_nome_atual,
-                    'options': [s['servico_id'] for s in servicos_encontrados if s.get('servico_id') is not None]
-                }
-
-                # 2. MONTAGEM DA MENSAGEM:
-                opcoes = "\n".join(
-                    [f"- {s.get('nome', 'Serviço sem nome')} (R${s.get('preco', 0.0):.2f})" for s in servicos_encontrados])
-                await update.message.reply_text(f"Encontrei mais de uma opção para '{servico_nome_atual}':\n{opcoes}\nQual deles você gostaria de agendar?")
-
-                # 3. Persiste o estado e interrompe
-                serializable_slots = prepare_data_for_json(updated_slots)
-                await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
-                return True
-
-            elif len(servicos_encontrados) == 1:
-                # Serviço único:
-                updated_slots['servico_id'] = servicos_encontrados[0]['servico_id']
-                updated_slots['servico_nome'] = servicos_encontrados[0]['nome']
-                updated_slots.pop('ambiguous_service_options', None)
-
         # 3. Verificar slots faltantes
         # Garante que o serviço ambíguo não é considerado um slot faltante para forçar a pergunta
         missing_slots = [
@@ -306,18 +208,15 @@ class SlotFillingManager:
             if slot not in updated_slots or updated_slots[slot] is None or updated_slots[slot] == ''
         ]
 
-        # A ambiguidade resolvida deve ser suficiente, mas se o ID não foi resolvido, precisamos do nome/ID
-        if 'servico_nome' in missing_slots and 'servico_id' not in updated_slots:
-            # O slot principal é 'servico_id'. Se ele estiver faltando, pedimos o nome.
-            # Garante que pedimos o nome
-            missing_slots[missing_slots.index('servico_nome')] = 'servico_nome'
+        # Garantir que se 'servico_id' falta, pedimos 'servico_nome'
+        if 'servico_id' not in updated_slots and 'servico_nome' in REQUIRED_SLOTS:
+            # Se o ID não está, e o nome é requerido, pedimos o nome.
+            if 'servico_nome' not in missing_slots:
+                missing_slots.append('servico_nome') # Garante que 'servico_nome' é o que será solicitado
+                missing_slots = [s for s in missing_slots if s != 'servico_id']
 
         if not missing_slots:
             # 4. Todos os slots preenchidos: Finalizar Agendamento
-            # Os slots agora incluem o servico_id
-
-            # Passa a data e hora normalizadas para o AppointmentService.process_appointment
-            # O AppointmentService deve converter o objeto date/datetime para string antes de chamar o Repository.
             is_successful, response_msg = await self.appointment_service.process_appointment(
                 user_id=user_id,
                 slot_data=updated_slots
@@ -326,8 +225,6 @@ class SlotFillingManager:
             await update.message.reply_text(response_msg)
 
             if is_successful:
-                # O AppointmentService já gerencia o commit; limpamos a sessão.
-                # Assumindo que você tem um método clear_session_state
                 await self.data_service.clear_session_state(user_id)
             else:
                 # Se falhar, limpamos slots problemáticos ou mantemos o estado
@@ -337,7 +234,6 @@ class SlotFillingManager:
 
         else:
             # 5. Slots Faltando: Solicitar o Próximo
-            # Persiste o estado atual dos slots
             serializable_slots = prepare_data_for_json(updated_slots)
             await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
             await self._ask_for_next_slot(update, context, nome, updated_slots, missing_slots)

@@ -24,6 +24,6 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """
     keyboard = [
         ["Agendar Serviço", "Meus Agendamentos"],
-        ["Informações de Contato", "Ajuda"]
+        ["Resetar Diálogo"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

@@ -1,9 +1,9 @@
-# # src/bot/llm_service.ppy
+# src/bot/llm_service.ppy
+
 from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import ContextTypes
 from src.bot.history_manager import HistoryManager
-from src.services.data_service import DataService
 from src.schemas.slot_extraction_schema import SlotExtraction
 from src.bot.llm_config import LLMConfig
 from src.utils.system_message import MESSAGES
@@ -11,6 +11,7 @@ from src.config.logger import setup_logger
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage  # Apenas para typing
+    from src.services.data_service import DataService
 
 logger = setup_logger(__name__)
 
@@ -18,7 +19,7 @@ logger = setup_logger(__name__)
 class LLMService:  # Antiga ai_assistance.py
     """Gerencia a interação direta com a LLM (Extração e Resposta Genérica)."""
 
-    def __init__(self, llm_config: LLMConfig, history_manager: HistoryManager, data_service: DataService):
+    def __init__(self, llm_config: LLMConfig, history_manager: HistoryManager, data_service: 'DataService'):
         self.llm_config = llm_config
         self.extraction_prompt = llm_config.extraction_prompt
         self.output_parser = llm_config.output_parser

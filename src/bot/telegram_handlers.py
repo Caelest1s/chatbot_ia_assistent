@@ -37,7 +37,6 @@ class TelegramHandlers:
         Garanta que o usuário existe no DB antes de qualquer operação de persistência.
         Não limpa histórico/sessão, apenas cria ou atualiza o registro.
         """
-        # Chama o DataService para salvar/atualizar o usuário. 
         # O salvar_usuario no DataService/UserRepository fará a checagem se o registro
         # existe e o criará/atualizará se necessário, com commit.
         await self.data_service.salvar_usuario(user_id=user_id, nome=nome, telefone=None)
@@ -157,7 +156,7 @@ class TelegramHandlers:
     async def agenda(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Inicia o processo de agendamento via comando /agenda."""
         user_id = update.message.from_user.id
-        nome = await self._get_user_name(user_id, update) # <-- USANDO HELPER
+        nome = await self._get_user_name(user_id, update)
 
         # Limpa o estado para iniciar o Slot Filling
         await self.data_service.clear_session_state(user_id)
@@ -188,63 +187,63 @@ class TelegramHandlers:
         # Variável de controle para saber se a mensagem foi tratada por algum fluxo
         handled_message = False
 
-        # 1. Recuperar o estado da sessão atual
+        # 1. 🚨 ORQUESTRAÇÃO DE LLM E PROCESSAMENTO DE SLOTS
+        processed_slots = await self.data_service.process_llm_response(
+            user_id=user_id
+            , user_message=original_question
+        )
+
+        # 2. RECUPERA O ESTADO ATUALIZADO DA SESSÃO
         session_state = await self.data_service.get_session_state(user_id)
         current_intent = session_state.get('current_intent')
-        # RECUPERA OS SLOTS ATUAIS DA SESSÃO
-        current_slots = session_state.get('slot_data', {})
 
-        # 2. Extrair Slots e Intenção da LLM (COM MEMÓRIA)
-        dados_estruturados = await self.llm_service.extract_intent_and_data(
-            text=original_question, current_slots=current_slots)
-
-        # 3. Prioridade para INTENÇÕES DE INTERRUPÇÃO/COMANDO
-        if dados_estruturados.intent == 'RESET':
+        # 3. Prioridade para INTENÇÕES DE INTERRUPÇÃO/COMANDO (Lidas diretamente do DB)
+        if current_intent == 'RESET':
             return await self.reset(update, context)
         
-        if dados_estruturados.intent == 'SERVICOS':
-            # Limpa se mudar de tópico
-            await self.data_service.clear_session_state(user_id)
+        if current_intent == 'SERVICOS':
             return await self.servicos(update, context)
 
-        # 🚨 4. OTIMIZAÇÃO CRÍTICA: Priorizar Intenção Persistente para Slot Filling
-        # Se o bot está no fluxo de AGENDAR, corrigimos a intenção para AGENDAR.
+        # 🚨 4. Roteamento baseado na Intenção Salva
         if current_intent == 'AGENDAR':
-            if dados_estruturados.intent != 'AGENDAR':
-                logger.info(f"Intenção corrigida: de {dados_estruturados.intent} para AGENDAR (Fluxo ativo).")
-                dados_estruturados.intent = 'AGENDAR'
+            await self.slot_filling_manager.handle_slot_filling(update, context)
+            handled_message = True
+
+        elif current_intent == 'BUSCAR_SERVICO':
+            # 💡 Fluxo para Busca de Serviço: Precisa de um objeto estruturado para o ServiceFinder.
+
+            # Classe Dummy para compatibilidade com o ServiceFinder
+            class DummyStructuredData:
+                def __init__(self, intent, slots):
+                    self.intent = intent
+                    # O service_finder antigo provavelmente espera a busca no campo data_extracao
+                    self.data_extracao = slots 
+
+            # Cria o objeto de compatibilidade
+            dummy_data = DummyStructuredData(current_intent, processed_slots)
+
+            # Executa a busca
+            await self.service_finder.handle_buscar_servicos_estruturado(update, context, dummy_data)
+            
+            # 🚨 IMPORTANTE: Limpa a sessão após a busca para não contaminar a próxima conversa
+            await self.data_service.clear_session_state(user_id) 
+
+            handled_message = True
 
         # ===============================================================================================
         #                   5. Roteamento baseado na Intenção Extraída ou Corrigida
         # ===============================================================================================
-        if dados_estruturados.intent == 'AGENDAR':
-            await self.slot_filling_manager.handle_slot_filling(update, context, dados_estruturados)
-            handled_message = True
-
-        elif dados_estruturados.intent == 'BUSCAR_SERVICO':
-            # Limpa o estado se a intenção for alterada, para não misturar fluxos.
-            if current_intent and current_intent != 'BUSCAR_SERVICO':
-                await self.data_service.clear_session_state(user_id)
-
-            await self.service_finder.handle_buscar_servicos_estruturado(update, context, dados_estruturados)
-            handled_message = True
 
         # 6. Resposta Padrão (GENERICO ou falha no tratamento)
-        elif dados_estruturados.intent == 'GENERICO' or (dados_estruturados.intent is None):
-
-            # Limpa o estado se sair de um fluxo estruturado.
-            if current_intent and current_intent != 'GENERICO':
-                await self.data_service.clear_session_state(user_id)
-            # A chamada a handle_generico inclui o salvamento da mensagem no DB,
+        elif current_intent == 'GENERICO' or (current_intent is None):
             await self.llm_service.handle_generico(update, context)
             handled_message = True
 
         # ===============================================================================================
-        #                               7. Timer e Fallback Final
+        #                               6. Timer e Fallback Final
         # ===============================================================================================
         if handled_message:
-            # SUCESSO: Rearranja o Timer de Inatividade
-            # Esta linha garante que o timer seja setado apenas após uma interação bem-sucedida
+            # SUCESSO: Rearranja o Timer de Inatividade após uma interação bem-sucedida
             self._set_inactivity_timer(user_id, context)
         else:
             # FALLBACK: Se handled_message ainda for False, a mensagem não foi reconhecida por nenhum fluxo.
