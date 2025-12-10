@@ -1,4 +1,4 @@
-# src/database/repositories/base_repo.py
+# src/database/repositories/base_repository.py
 
 from typing import TypeVar, Generic
 from sqlalchemy.ext.asyncio import AsyncSession

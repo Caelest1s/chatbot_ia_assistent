@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importações da Base e dos Modelos
-from src.database.repositories.base_repo import BaseRepository # Repositório Genérico
+from src.database.repositories.base_repo import BaseRepository
 from src.database.models.user_model import Usuario
 
 logger = setup_logger(__name__)

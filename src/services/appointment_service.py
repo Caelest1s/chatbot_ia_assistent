@@ -25,8 +25,11 @@ class AppointmentService:
         self.data_service = data_service
         self.validator = validator
 
-    async def handle_agendamento_estruturado(self, update: Update,
-                                             context: ContextTypes.DEFAULT_TYPE, dados: SlotExtraction) -> tuple[bool, str]:
+    async def handle_agendamento_estruturado(
+            self
+            , update: Update
+            , context: ContextTypes.DEFAULT_TYPE
+            , dados: SlotExtraction) -> tuple[bool, str]:
         """
         Processa a intenção AGENDAR com dados extraídos.
         Retorna (True, 'Mensagem de sucesso/erro tratada') ou (False, 'Erro interno não tratado').
@@ -48,6 +51,8 @@ class AppointmentService:
 
         servico = servicos_encontrados[0]
         servico_id = servico['servico_id']
+
+        servico_minutos = servico['duracao_minutos']
 
         # 2. VALIDAÇÕES DE DATA E HORA
         data_hora_agendamento, erro_msg = self.validator.validate_date_time_format(
@@ -72,11 +77,15 @@ class AppointmentService:
             data_dt = data_hora_agendamento.strftime('%Y-%m-%d')
             hora_dt = data_hora_agendamento.strftime('%H:%M')
 
-            sucesso, mensagem = self.data_service.inserir_agendamento(
-                user_id, servico_id, data_dt, hora_dt)
+            sucesso, mensagem = await self.data_service.inserir_agendamento(
+                user_id, servico_id, servico_nome, servico_minutos, data_dt, hora_dt)
 
             # A mensagem de sucesso ou falha (ex: horário indisponível) vem do DBManager
             await update.message.reply_text(f'{nome}, {mensagem}')
+
+            if sucesso:
+                await self.data_service.clear_session_state(user_id)
+
             return True, mensagem
 
         except Exception as e:
@@ -134,11 +143,8 @@ class AppointmentService:
         # 3. Se todos os slots básicos estão formatados e as regras de tempo atendidas
         return True, "", slot_data
 
-    async def process_appointment(self, user_id: int, slot_data: Dict) -> Tuple[bool, str]:
-        """
-        [ASYNC] Tenta processar e inserir um agendamento. (Revisão da função anterior)
-        """
-        # A chamada à validação de slots AGORA é a nova função
+    async def process_appointment(self, user_id: int, slot_data: dict) -> Tuple[bool, str]:
+        """[ASYNC] Tenta processar e inserir um agendamento."""
         is_valid, validation_msg, normalized_slots = await self.validate_slots(slot_data)
 
         if not is_valid:
@@ -158,11 +164,21 @@ class AppointmentService:
         except Exception as e:
             logger.error(f"Erro ao extrair slots normalizados: {e}")
             return False, "Erro ao formatar os dados do agendamento."
+        
+        servico = await self.data_service.get_service_details_by_id(servico_id)
+        if not servico:
+            logger.error(f"Serviço ID {servico_id} não encontrado para agendamento.")
+            return False, "O serviço selecionado não está disponível ou não encontrado."
+        
+        servico_nome = servico.get('nome')
+        servico_minutos = servico.get('duracao_minutos')
 
         # 3. Inserção do Agendamento (Transação final e checagem de conflito DB)
         success, response_msg = await self.data_service.inserir_agendamento(
             user_id=user_id,
             servico_id=servico_id,
+            servico_nome=servico_nome,
+            servico_minutos=servico_minutos,
             data=data,
             hora_inicio=hora_inicio
         )

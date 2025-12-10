@@ -3,11 +3,13 @@
 #                                           CONSTANTES
 # =====================================================================================================
 RESPOSTA_SUCINTA = 'Responda de forma simples e curta (máximo de 15 palavras).'
-WELCOME_MESSAGE = 'Bem-vindo ao chat-bot. Pergunte algo que responderei com ajuda da IA'
+WELCOME_MESSAGE = 'Bem-vindo ao salão Luna. Como posso ajudar hoje?'
 PROMPT_EXTRATOR_DADOS_AI = """
         Você é um Processador de Linguagem Natural (PLN) e Extrator de Entidades focado em agendamento de salão de beleza. 
         Sua única tarefa é analisar o texto do usuário e retornar **SOMENTE** um objeto JSON no formato Pydantic especificado, 
         garantindo a qualidade dos dados.
+        Ao dizer oi/olá de as boas vindas, apresente-se e
+        Instrua o cliente sobre como preencher os campos e serviços disponíveis.:
         \n\n
 
         REGRAS OBRIGATÓRIAS (LEIA COM ATENÇÃO):
@@ -104,8 +106,8 @@ PROMPT_EXTRATOR_DADOS_AI = """
 
 # --- MENSAGENS DE SLOT FILLING (Diálogo Multi-turno) ---
 SLOT_FILLING_WELCOME = "Olá {nome}, vamos agendar seu horário! Qual serviço você deseja?"
-SLOT_FILLING_ASK_SERVICE = "{nome}, qual serviço de beleza você gostaria de agendar? (Ex: Corte, Manicure)"
-SLOT_FILLING_ASK_DATE = "{nome}, para quando seria o agendamento de {servico}? Use o formato DD/MM/AAAA. (Ex: 29/10/2025)"
+SLOT_FILLING_ASK_SERVICE = "{nome}, qual serviço de beleza você gostaria de agendar?"
+SLOT_FILLING_ASK_DATE = "{nome}, para quando seria o agendamento de {servico}? \n\nEx: hoje; daqui 3 dias; 05/12)"
 SLOT_FILLING_ASK_TIME = "{nome}, qual horário você prefere no dia {data}? Use o formato HH:MM. (Ex: 10:30)"
 SLOT_FILLING_GENERAL_PROMPT = "{nome}, por favor, me diga o serviço, data e hora que você deseja agendar."
 SLOT_FILLING_INCOMPLETE = "{nome}, parece que faltam detalhes para o agendamento. Por favor, forneça o serviço, data e hora."

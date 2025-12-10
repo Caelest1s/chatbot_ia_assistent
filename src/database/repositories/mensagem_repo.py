@@ -1,4 +1,4 @@
-# src/database/repositories/mensagem_repository.py
+# src/database/repositories/mensagem_repo.py
 from src.config.logger import setup_logger
 from typing import Optional
 

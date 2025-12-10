@@ -6,11 +6,9 @@ import json
 from typing import Optional, TYPE_CHECKING
 from datetime import date
 
-# Importações do SQLAlchemy
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
-# Importações dos módulos
-from src.database.repositories import UserRepository, AgendaRepository, SessionRepository, MensagemRepository
+from src.database.repositories import UserRepository, AgendaRepository, SessionRepository, MensagemRepository, ServicoRepository
 from src.utils import MESSAGES
 
 # Importar dependências de serviço
@@ -35,7 +33,7 @@ class DataService:
         self._llm_service: Optional[LLMService] = llm_service
         logger.info("Database (Coordenador Assíncrono) inicializado com sucesso.")
 
-        self.resposta_sucinta = MESSAGES.get('RESPOSTA_SUCINTA', "Olá! Como posso ajudar você hoje?")
+        self.resposta_sucinta = MESSAGES.get('RESPOSTA_SUCINTA' + MESSAGES['WELCOME_MESSAGE'])
 
     def _get_session(self) -> AsyncSession:
         """Retorna uma nova sessão assíncrona"""
@@ -48,11 +46,12 @@ class DataService:
             "user_repo": UserRepository(session, self.resposta_sucinta)
             , "agenda_repo": AgendaRepository(session)
             , "session_repo": SessionRepository(session)
-            ,"mensagem_repo": MensagemRepository(session, self.resposta_sucinta)
+            , "mensagem_repo": MensagemRepository(session, self.resposta_sucinta)
+            , "servico_repo": ServicoRepository(session)
         }
     
     # =========================================================
-    # FLUXO PRINCIPAL: PROCESSAMENTO DA RESPOSTA LLM (NOVO)
+    # FLUXO PRINCIPAL: PROCESSAMENTO DA RESPOSTA LLM 
     # =========================================================
     async def process_llm_response(self, user_id: int, user_message: str) -> dict:
         """
@@ -241,51 +240,58 @@ class DataService:
     async def buscar_servicos(self, termo: str) -> list:
         async with self._get_session() as session:
             repositories = self._get_repos(session)
-            return await repositories["agenda_repo"].buscar_servicos(termo)
+            return await repositories["servico_repo"].buscar_servicos(termo)
 
     async def get_available_services_names(self) -> list[str]:
         async with self._get_session() as session:
             repositories = self._get_repos(session)
-            return await repositories["agenda_repo"].get_available_services_names()
+            return await repositories["servico_repo"].get_available_services_names()
 
     async def verificar_disponibilidade(self, data: str) -> list:
         async with self._get_session() as session:
             repositories = self._get_repos(session)
             return await repositories["agenda_repo"].verificar_disponibilidade(data)
 
-    async def inserir_agendamento(self, user_id: int, servico_id: int, data: str, hora_inicio: str) -> tuple[bool, str]:
+    async def inserir_agendamento(self
+                                  , user_id: int
+                                  , servico_id: int
+                                  , servico_nome: str
+                                  , servico_minutos: int
+                                  , data: str
+                                  , hora_inicio: str) -> tuple[bool, str]:
         """Insere um agendamento e comita em uma transação. Retorna ID do agendamento ou erro."""
         async with self._get_session() as session:
             async with session.begin():
                 try:
-                    agenda_repo = AgendaRepository(session)
+                    agenda_repo = self._get_repos(session)['agenda_repo']
 
                     # O repositório deve ser assíncrono
                     # 1. Executa a lógica que manipula a sessão (INSERT/UPDATE)
-                    agenda_obj, servico_nome, msg = await agenda_repo.inserir_agendamento(user_id, servico_id, data, hora_inicio)
+                    
+                    agenda_obj, final_servico_nome, msg = await agenda_repo.inserir_agendamento(
+                        user_id 
+                        , servico_id 
+                        , servico_nome 
+                        , servico_minutos 
+                        , data 
+                        , hora_inicio)
 
                     if agenda_obj:
-                        # 2. Se for um sucesso de banco de dados:
-                        # O COMMIT será executado AUTOMATICAMENTE na saída do 'async with session.begin():'
-
-                        # Lógica de resposta (mantida, mas garantindo que o objeto é assíncrono)
+                        # 2. Se for um sucesso: o commit será executado automatic na saída do session.begin()
                         agenda_id = agenda_obj.agenda_id
                         hora_fim_str = agenda_obj.hora_fim.strftime('%H:%M')
-                        final_servico_nome = servico_nome if servico_nome else "Serviço"
 
-                        response_msg = (
-                            f"Agendamento #{agenda_id} confirmado para o serviço '{final_servico_nome}' "
+                        response_msg = (f"Agendamento #{agenda_id} confirmado para o serviço '{final_servico_nome}' "
                             f"na data {data} das {agenda_obj.hora_inicio.strftime('%H:%M')} às {hora_fim_str}."
                         )
-
                         logger.info(response_msg)
                         return True, response_msg
 
                     return False, msg  # Erro de validação/conflito
-
+                
                 except Exception as e:
                     logger.error(
-                        f"Erro transacional ao inserir agendamento. Erro ao agendar: {e}. ")
+                        f"Erro transacional ao inserir agendamento. Erro: {e}. ")
                     # O rollback é tratado pelo Context Manager se o commit falhar
                     # Re-lança a exceção para que o bloco session.begin() faça o ROLLBACK.
                     raise
@@ -307,6 +313,26 @@ class DataService:
                 duracao_minutos=duracao_minutos,
                 shift_name=shift_name
             )
+        
+    async def get_service_details_by_id(self, servico_id: int) -> Optional[dict]:
+        """
+        [PROXY] Busca ID, nome e duração de um serviço ativo pelo seu ID.
+        Usado pelo AppointmentService antes de inserir o agendamento.
+        """
+        async with self._get_session() as session:
+            repositories = self._get_repos(session)
+            servico_repo = repositories["servico_repo"]
+            
+            # Assumindo que ServicoRepository tem um método get_by_id ou similar
+            servico = await servico_repo.get_by_id(servico_id)
+
+            if servico:
+                return {
+                    "servico_id": servico.servico_id,
+                    "nome": servico.nome,
+                    "duracao_minutos": servico.duracao_minutos,
+                }
+            return None
 
     async def get_service_details_by_name(self, servico_nome: str) -> Optional[dict]:
         """
@@ -316,7 +342,7 @@ class DataService:
         async with self._get_session() as session:
             repositories = self._get_repos(session)
             # Chama o novo método no AgendaRepository
-            servico = await repositories["agenda_repo"].get_servico_by_name(servico_nome)
+            servico = await repositories["servico_repo"].get_by_name(servico_nome)
 
             if servico:
                 return {
