@@ -9,14 +9,12 @@ from src.utils.system_message import MESSAGES
 
 logger = logging.getLogger(__name__)
 
-
 class AppointmentValidator:
     """Validações de regras de negócio para agendamentos."""
 
     # =========================================================
     # MÉTODOS DE NORMALIZAÇÃO
     # =========================================================
-
     def normalize_date_format(self, data_str: str) -> Tuple[bool, str, Optional[str]]:
         """
         Tenta converter a data de 'DD/MM/YYYY' para o formato DB 'YYYY-MM-DD'.
@@ -47,9 +45,7 @@ class AppointmentValidator:
         return False, msg, None
 
     def _combine_date_time(self, date_obj: date, hora_str: str) -> tuple[datetime, str] | tuple[None, str]:
-        """
-        [INTERNO] Combina um objeto date com uma string de hora em um objeto datetime.
-        """
+        """[INTERNO] Combina um objeto date com uma string de hora em um objeto datetime."""
         try:
             # 1. Limpa a string de hora
             hora_limpa = hora_str.replace(
@@ -100,7 +96,6 @@ class AppointmentValidator:
     # =========================================================
     # ORQUESTRAÇÃO DE REGRAS
     # =========================================================
-
     def validate_date_time_rules(self, data_str: str, hora_str: str) -> Tuple[bool, str, Optional[datetime]]:
         """
         Orquestra todas as validações de data e hora.

@@ -3,12 +3,13 @@ import logging
 from src.config.logger import setup_logger
 import json
 
-from typing import Optional, TYPE_CHECKING
-from datetime import date
+from typing import Optional,TYPE_CHECKING
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from src.database.repositories import UserRepository, AgendaRepository, SessionRepository, MensagemRepository, ServicoRepository
+from src.services.scheduler_service import SchedulerService
 from src.utils import MESSAGES
 
 # Importar dependências de serviço
@@ -49,6 +50,11 @@ class DataService:
             , "mensagem_repo": MensagemRepository(session, self.resposta_sucinta)
             , "servico_repo": ServicoRepository(session)
         }
+    
+    def _get_scheduler_service(self, session: AsyncSession):
+        """Retorna o SchedulerService para a sessão atual."""
+        agenda_repo = self._get_repos(session)['agenda_repo']
+        return SchedulerService(agenda_repo=agenda_repo)
     
     # =========================================================
     # FLUXO PRINCIPAL: PROCESSAMENTO DA RESPOSTA LLM 
@@ -130,9 +136,7 @@ class DataService:
 
     # BUSCAR TELEFONE
     async def get_telefone_usuario(self, user_id: int) -> Optional[str]:
-        """
-        Recupera o número de telefone do usuário pelo ID. Usado para checagem de onboarding.
-        """
+        """Recupera o número de telefone do usuário pelo ID. Usado para checagem de onboarding."""
         async with self._get_session() as session:
             repositories = self._get_repos(session)
             # Você precisa implementar get_telefone_by_user_id no UserRepository
@@ -156,7 +160,6 @@ class DataService:
     async def salvar_mensagem(self, user_id: int, mensagem: str, origem: str):
         """
         Salva uma mensagem (usuário ou bot) no histórico e comita em uma transação.
-        
         Args:
             user_id: ID do usuário (do Telegram/plataforma).
             mensagem: Conteúdo da mensagem.
@@ -217,10 +220,7 @@ class DataService:
                     raise
 
     async def clear_session_state(self, user_id: int):
-        """
-        Limpa o estado da sessão (UserSession) do usuário e comita em uma transação.
-        Equivalente a remover o estado do diálogo.
-        """
+        """Limpa o estado da sessão (UserSession) do usuário e comita em uma transação. Remove o estado do diálogo."""
 
         async with self._get_session() as session:
             async with session.begin():
@@ -235,7 +235,7 @@ class DataService:
                     raise
 
     # =========================================================
-    # FUNÇÕES DE AGENDAMENTO E SERVIÇO (PROXY para AgendaRepository)
+    # FUNÇÕES DE SERVIÇOS (PROXY para ServicoRepository)
     # =========================================================
     async def buscar_servicos(self, termo: str) -> list:
         async with self._get_session() as session:
@@ -246,73 +246,6 @@ class DataService:
         async with self._get_session() as session:
             repositories = self._get_repos(session)
             return await repositories["servico_repo"].get_available_services_names()
-
-    async def verificar_disponibilidade(self, data: str) -> list:
-        async with self._get_session() as session:
-            repositories = self._get_repos(session)
-            return await repositories["agenda_repo"].verificar_disponibilidade(data)
-
-    async def inserir_agendamento(self
-                                  , user_id: int
-                                  , servico_id: int
-                                  , servico_nome: str
-                                  , servico_minutos: int
-                                  , data: str
-                                  , hora_inicio: str) -> tuple[bool, str]:
-        """Insere um agendamento e comita em uma transação. Retorna ID do agendamento ou erro."""
-        async with self._get_session() as session:
-            async with session.begin():
-                try:
-                    agenda_repo = self._get_repos(session)['agenda_repo']
-
-                    # O repositório deve ser assíncrono
-                    # 1. Executa a lógica que manipula a sessão (INSERT/UPDATE)
-                    
-                    agenda_obj, final_servico_nome, msg = await agenda_repo.inserir_agendamento(
-                        user_id 
-                        , servico_id 
-                        , servico_nome 
-                        , servico_minutos 
-                        , data 
-                        , hora_inicio)
-
-                    if agenda_obj:
-                        # 2. Se for um sucesso: o commit será executado automatic na saída do session.begin()
-                        agenda_id = agenda_obj.agenda_id
-                        hora_fim_str = agenda_obj.hora_fim.strftime('%H:%M')
-
-                        response_msg = (f"Agendamento #{agenda_id} confirmado para o serviço '{final_servico_nome}' "
-                            f"na data {data} das {agenda_obj.hora_inicio.strftime('%H:%M')} às {hora_fim_str}."
-                        )
-                        logger.info(response_msg)
-                        return True, response_msg
-
-                    return False, msg  # Erro de validação/conflito
-                
-                except Exception as e:
-                    logger.error(
-                        f"Erro transacional ao inserir agendamento. Erro: {e}. ")
-                    # O rollback é tratado pelo Context Manager se o commit falhar
-                    # Re-lança a exceção para que o bloco session.begin() faça o ROLLBACK.
-                    raise
-
-    async def get_available_blocks_for_shift(self, data: str, duracao_minutos: int, shift_name: Optional[str] = None) -> list[str]:
-        """
-        [PROXY] Chama o método de cálculo de blocos livres no AgendaRepository (calculate_available_blocks),
-        garantindo a gestão da sessão.
-        """
-        # 1. Abre a sessão assíncrona
-        async with self._get_session() as session:
-            # 2. Obtém os repositórios para esta sessão
-            repositories = self._get_repos(session)
-            agenda_repo = repositories["agenda_repo"]
-
-            # 3. Chama o método de cálculo no repositório (o Objeto Real)
-            return await agenda_repo.calculate_available_blocks(
-                data=data,
-                duracao_minutos=duracao_minutos,
-                shift_name=shift_name
-            )
         
     async def get_service_details_by_id(self, servico_id: int) -> Optional[dict]:
         """
@@ -322,8 +255,6 @@ class DataService:
         async with self._get_session() as session:
             repositories = self._get_repos(session)
             servico_repo = repositories["servico_repo"]
-            
-            # Assumindo que ServicoRepository tem um método get_by_id ou similar
             servico = await servico_repo.get_by_id(servico_id)
 
             if servico:
@@ -333,7 +264,7 @@ class DataService:
                     "duracao_minutos": servico.duracao_minutos,
                 }
             return None
-
+        
     async def get_service_details_by_name(self, servico_nome: str) -> Optional[dict]:
         """
         [ASYNC] Busca o ID, nome e duração de um serviço ativo pelo seu nome.
@@ -351,7 +282,102 @@ class DataService:
                     "duracao_minutos": servico.duracao_minutos,
                 }
             return None
+        
+    # =========================================================
+    # FUNÇÕES DE AGENDAMENTO (PROXY para AgendaRepository)
+    # =========================================================
+    async def verificar_disponibilidade(self, data: str) -> list:
+        async with self._get_session() as session:
+            repositories = self._get_repos(session)
+            return await repositories["agenda_repo"].verificar_disponibilidade(data)
 
+    async def inserir_agendamento(self
+                                  , user_id: int
+                                  , servico_id: int
+                                  , servico_nome: str
+                                  , servico_minutos: int
+                                  , data: str
+                                  , hora_inicio: str) -> tuple[bool, str]:
+        """
+        Insere um agendamento e comita em uma transação. Retorna ID do agendamento ou erro.
+        [ASYNC] Insere um agendamento, verificando a disponibilidade via SchedulerService.
+        """
+        async with self._get_session() as session:
+            scheduler = self._get_scheduler_service(session)
+
+            # 1. VALIDAÇÃO DE DISPONIBILIDADE (Regra de Negócio)
+            is_available, validation_msg = await scheduler.is_slot_available(
+                data=data
+                , hora_inicio=hora_inicio
+                , servico_minutos=servico_minutos
+            )
+
+            if not is_available:
+                # Retorna a mensagem de erro (ex: horário passado, conflito, fora do horário comercial)
+                return False, validation_msg
+            
+        # 2. SE DISPONÍVEL, CONVERTE PARA OBJETOS NATIVOS e INSERE (Transação DB)
+        try:
+            # Converte os strings para objetos date/time que o AgendaRepository espera
+            data_dt = datetime.strptime(data, '%Y-%m-%d').date()
+            hora_inicio_dt = datetime.strptime(hora_inicio, '%H:%M')
+            hora_inicio_time = hora_inicio_dt.time()
+
+            # O SchedulerService já fez este cálculo, mas repetimos para persistência
+            hora_fim_dt = hora_inicio_dt + timedelta(minutes=servico_minutos)
+            hora_fim_time = hora_fim_dt.time()
+        except ValueError:
+            logger.error("Erro de formato após validação bem-sucedida, erro interno.")
+            return False, "Erro interno de conversão de data/hora."
+        
+        async with session.begin():
+            try:
+                agenda_repo = self._get_repos(session)['agenda_repo']
+
+                # 1. Executa a lógica que manipula a sessão (INSERT/UPDATE)
+                agenda_obj, final_servico_nome, msg = await agenda_repo.inserir_agendamento(
+                    user_id=user_id 
+                    , servico_id=servico_id 
+                    , servico_nome=servico_nome 
+                    , data_dt=data_dt
+                    , hora_inicio_time=hora_inicio_time
+                    , hora_fim_time=hora_fim_time)
+
+                if agenda_obj:
+                    # 2. Se for um sucesso: o commit será executado automatic na saída do session.begin()
+                    agenda_id = agenda_obj.agenda_id
+                    hora_fim_str = agenda_obj.hora_fim.strftime('%H:%M')
+
+                    response_msg = (f"Agendamento #{agenda_id} confirmado para o serviço '{final_servico_nome}' "
+                        f"na data {data} das {agenda_obj.hora_inicio.strftime('%H:%M')} às {hora_fim_str}."
+                    )
+                    logger.info(response_msg)
+                    return True, response_msg
+
+                return False, msg  # Erro de validação/conflito
+            
+            except Exception as e:
+                logger.error(f"Erro transacional ao inserir agendamento. Erro: {e}.")
+                # O rollback é tratado pelo Context Manager se o commit falhar
+                # Re-lança a exceção para que o bloco session.begin() faça o ROLLBACK.
+                raise
+
+    async def get_available_blocks_for_shift(self, data: str, duracao_minutos: int, shift_name: Optional[str] = None) -> list[str]:
+        """
+        [PROXY] Chama o método de cálculo de blocos livres no AgendaRepository (calculate_available_blocks),
+        garantindo a gestão da sessão.
+        """
+        # 1. Abre a sessão assíncrona
+        async with self._get_session() as session:
+            scheduler = self._get_scheduler_service(session)
+
+            # 3. Chama o método de cálculo no repositório (o Objeto Real)
+            return await scheduler.calculate_available_blocks(
+                data=data,
+                duracao_minutos=duracao_minutos,
+                shift_name=shift_name
+            )
+        
     async def update_slot_data(self, user_id: int, slot_key: str, slot_value: any):
         """
         [ASYNC] Atualiza ou remove (se slot_value for None) um slot 
@@ -380,7 +406,6 @@ class DataService:
 
             # 3. Usa o método transacional de atualização do DataService
             # Chamar o update_session_state aqui é mais limpo, mas ele precisa ser transacional.
-            
             # Como este método já é transacional, vamos chamar o repositório diretamente:
             async with session.begin():
                 try:
@@ -393,7 +418,6 @@ class DataService:
                         slot_data=slot_data
                     )
                     logger.info(f"Slot '{slot_key}' persistido com sucesso para o usuário {user_id}.")
-
                 except Exception as e:
                     logger.error(f"Erro transacional ao atualizar slot {slot_key}: {e}")
                     raise

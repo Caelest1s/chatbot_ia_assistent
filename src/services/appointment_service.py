@@ -1,5 +1,5 @@
 # src/services/appointment_service.py
-from typing import Optional, Dict, Tuple, List, Any
+from typing import Optional, Tuple
 import logging
 
 from telegram import Update
@@ -96,7 +96,7 @@ class AppointmentService:
     # =========================================================
     # FUNÇÃO DE VALIDAÇÃO DE SLOTS (Completa)
     # =========================================================
-    async def validate_slots(self, slot_data: Dict) -> Tuple[bool, str, Optional[Dict]]:
+    async def validate_slots(self, slot_data: dict) -> Tuple[bool, str, Optional[dict]]:
         """
         [ASYNC] Valida todos os slots necessários (serviço, data, hora).
         Retorna (sucesso, mensagem, slots normalizados).
