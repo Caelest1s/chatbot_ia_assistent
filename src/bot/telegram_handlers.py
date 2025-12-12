@@ -2,7 +2,8 @@
 from telegram import Update
 from telegram.ext import ContextTypes, JobQueue
 
-from src.services.data_service import DataService
+from src.services.persistence_service import PersistenceService
+from src.services.dialog_flow_service import DialogFlowService
 from src.bot.llm_service import LLMService
 from src.services.service_finder import ServiceFinder
 from src.bot.slot_filling_manager import SlotFillingManager
@@ -22,15 +23,17 @@ class TelegramHandlers:
     TIMEOUT_MINUTES = TIMEOUT_MINUTES
 
     def __init__(self, 
-                 data_service: DataService, 
+                 persistence_service: PersistenceService, 
                  llm_service: LLMService, 
                  service_finder: ServiceFinder, 
-                 slot_filling_manager: SlotFillingManager):
+                 slot_filling_manager: SlotFillingManager, 
+                 dialog_flow_service: DialogFlowService):
         
-        self.data_service = data_service
+        self.persistence_service = persistence_service
         self.llm_service = llm_service
         self.service_finder = service_finder
         self.slot_filling_manager = slot_filling_manager
+        self.dialog_flow_service = dialog_flow_service
 
     async def _ensure_user_registered(self, user_id: int, nome: str):
         """
@@ -39,13 +42,13 @@ class TelegramHandlers:
         """
         # O salvar_usuario no DataService/UserRepository fará a checagem se o registro
         # existe e o criará/atualizará se necessário, com commit.
-        await self.data_service.salvar_usuario(user_id=user_id, nome=nome, telefone=None)
+        await self.persistence_service.salvar_usuario(user_id=user_id, nome=nome, telefone=None)
         logger.debug(f"Registro de usuário {user_id} garantido (criado ou atualizado).")
     
     async def _get_user_name(self, user_id: int, update: Update) -> str:
         """Helper para obter o nome do usuário do DB ou do Telegram (fallback)."""
         # Prioriza o nome salvo no DB para consistência
-        nome = await self.data_service.get_nome_usuario(user_id)
+        nome = await self.persistence_service.get_nome_usuario(user_id)
         if nome:
             return nome
         
@@ -96,10 +99,10 @@ class TelegramHandlers:
         self.llm_service.history_manager.reset_history(user_id)
 
         # 2. Limpa o estado da sessão (DB)
-        await self.data_service.clear_session_state(user_id)
+        await self.persistence_service.clear_session_state(user_id)
 
         # 3. Limpa o histórico persistente (mensagens salvas no DB)
-        await self.data_service.clear_historico(user_id)
+        await self.persistence_service.clear_historico(user_id)
 
         # 4. Limpa o user_data (se você usa para armazenar estado temporário)
         if user_id in context.application.user_data:
@@ -123,8 +126,8 @@ class TelegramHandlers:
 
         self.llm_service.history_manager.reset_history(user_id)
         # Limpa o estado da sessão também
-        await self.data_service.clear_session_state(user_id)
-        await self.data_service.clear_historico(user_id)
+        await self.persistence_service.clear_session_state(user_id)
+        await self.persistence_service.clear_historico(user_id)
 
         # Remove o timer existente ao resetar
         self._remove_inactivity_timer(user_id, context.application.job_queue)
@@ -140,7 +143,7 @@ class TelegramHandlers:
         user_id = update.effective_user.id
         nome = await self._get_user_name(user_id, update) # <-- USANDO HELPER
 
-        dados_servicos = await self.data_service.buscar_servicos('')
+        dados_servicos = await self.persistence_service.buscar_servicos('')
 
         if not dados_servicos:
             await update.message.reply_text(f'{nome}, nenhum serviço disponível.')
@@ -159,10 +162,10 @@ class TelegramHandlers:
         nome = await self._get_user_name(user_id, update)
 
         # Limpa o estado para iniciar o Slot Filling
-        await self.data_service.clear_session_state(user_id)
+        await self.persistence_service.clear_session_state(user_id)
 
         # 2. Define a intenção AGENDAR
-        await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data={})
+        await self.persistence_service.update_session_state(user_id, current_intent='AGENDAR', slot_data={})
 
         await update.message.reply_text(MESSAGES['SLOT_FILLING_WELCOME'].format(nome=nome))
 
@@ -188,13 +191,13 @@ class TelegramHandlers:
         handled_message = False
 
         # 1. 🚨 ORQUESTRAÇÃO DE LLM E PROCESSAMENTO DE SLOTS
-        processed_slots = await self.data_service.process_llm_response(
+        processed_slots = await self.dialog_flow_service.process_llm_response(
             user_id=user_id
             , user_message=original_question
         )
 
         # 2. RECUPERA O ESTADO ATUALIZADO DA SESSÃO
-        session_state = await self.data_service.get_session_state(user_id)
+        session_state = await self.persistence_service.get_session_state(user_id)
         current_intent = session_state.get('current_intent')
 
         # 3. Prioridade para INTENÇÕES DE INTERRUPÇÃO/COMANDO (Lidas diretamente do DB)
@@ -226,7 +229,7 @@ class TelegramHandlers:
             await self.service_finder.handle_buscar_servicos_estruturado(update, context, dummy_data)
             
             # 🚨 IMPORTANTE: Limpa a sessão após a busca para não contaminar a próxima conversa
-            await self.data_service.clear_session_state(user_id) 
+            await self.persistence_service.clear_session_state(user_id) 
 
             handled_message = True
 

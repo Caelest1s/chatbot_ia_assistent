@@ -10,7 +10,7 @@ from src.schemas.slot_extraction_schema import SlotExtraction
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.services.data_service import DataService
+    from src.services.persistence_service import PersistenceService
 
 
 logger = logging.getLogger(__name__)
@@ -21,9 +21,9 @@ class SlotProcessorService:
     extraídos pela LLM antes de serem salvos na sessão (DataService).
     """
 
-    def __init__(self, data_service: 'DataService'):
+    def __init__(self, persistence_service: 'PersistenceService'):
         """Recebe o repositório como dependência para consultas ao DB."""
-        self.data_service = data_service
+        self.persistence_service = persistence_service
 
     async def _normalize_service_details(self, slot_data: dict) -> dict:
         """
@@ -34,7 +34,7 @@ class SlotProcessorService:
 
         if service_name and isinstance(service_name, str):
             # Chama o método do repositório para buscar os detalhes
-            service_details = await self.data_service.get_service_details_by_name(service_name)
+            service_details = await self.persistence_service.get_service_details_by_name(service_name)
             
             if service_details:
                 # Enriquecimento: Adiciona ID e Duração

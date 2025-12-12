@@ -3,7 +3,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from src.platform.telegram.ui.keyboards import get_main_menu_keyboard
-from src.services.data_service import DataService # Importa o serviço
+from src.services.persistence_service import PersistenceService # Importa o serviço
 from src.config.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -24,7 +24,7 @@ async def receive_contact_info(update: Update, context: ContextTypes.DEFAULT_TYP
     
     try:
         # 1. Instancia o DataService (Ajuste para sua injeção de dependência real)
-        data_service: DataService = context.application.bot_data['data_service']
+        data_service: PersistenceService = context.application.bot_data['data_service']
         
         # 2. Chama o método de negócio para SALVAR (A Lógica de negócio fica aqui)
         await data_service.salvar_usuario(

@@ -12,7 +12,7 @@ from src.bot.main import Main
 from src.utils.system_message import MESSAGES
 
 # Importações dos Módulos de Serviço (A Main depende deles)
-from src.services.data_service import DataService
+from src.services.persistence_service import PersistenceService
 from src.bot.history_manager import HistoryManager
 from src.bot.llm_config import LLMConfig
 from src.bot.llm_service import LLMService
@@ -22,6 +22,7 @@ from src.services.service_finder import ServiceFinder
 from src.bot.slot_filling_manager import SlotFillingManager
 from src.bot.telegram_handlers import TelegramHandlers
 from src.services.slot_processor_service import SlotProcessorService
+from src.services.dialog_flow_service import DialogFlowService
 
 from src.config.logger import setup_logger
 logger = setup_logger(__name__)
@@ -40,13 +41,9 @@ def create_telegram_application(token: str) -> Application:
     return application
 
 async def create_main_bot() -> Main:
-    """
-    Função Factory Assíncrona para inicializar todas as dependências 
-    e criar a instância da classe Main.
-    """
+    """Função Factory Assíncrona para inicializar todas as dependências e criar a instância da classe Main."""
 
     # --- 1. Inicialização da Infraestrutura ---
-   
     # Executa o init_db (criação de tabelas) antes de tudo
     logger.info("Iniciando sincronização de tabelas (init_db)...")
     await init_db(engine)
@@ -62,9 +59,9 @@ async def create_main_bot() -> Main:
     # --- 3. Inicialização de Serviços e Componentes Assíncronos ---
 
     # 3.1. Serviços Base (resolver Ciclo de Dependência)
-    data_service = DataService(session_maker=AsyncSessionLocal)
+    persistence_service = PersistenceService(session_maker=AsyncSessionLocal)
 
-    services_list = await data_service.get_available_services_names()
+    services_list = await persistence_service.get_available_services_names()
 
     # 3.2 Componentes LLM e Histórico
     history_manager = HistoryManager(
@@ -77,34 +74,47 @@ async def create_main_bot() -> Main:
     llm_service = LLMService(
         llm_config=llm_config,
         history_manager=history_manager,
-        data_service=data_service
+        persistence_service=persistence_service
     )
 
-    data_service._llm_service = llm_service
+    persistence_service._llm_service = llm_service
     logger.info("Ciclo de dependência resolvido: LLMService injetado tardiamente no DataService.")
 
     # 3.3 Lógica de Negócios
     validator = AppointmentValidator()
     appointment_service = AppointmentService(
-        data_service=data_service,
+        persistence_service=persistence_service,
         validator=validator
     )
     service_finder = ServiceFinder(
-        data_service=data_service
+        data_service=persistence_service
     )
 
     # 3.4 Gerenciador de Fluxo
     slot_filling_manager = SlotFillingManager(
-        data_service=data_service,
+        persistence_service=persistence_service,
         appointment_service=appointment_service
     )
 
+    slot_processor_service = SlotProcessorService(
+        persistence_service=persistence_service,
+    )
+    logger.info("SlotProcessorService inicializado.")
+
+    dialog_flow_service = DialogFlowService(
+        llm_service=llm_service,
+        persistence_service=persistence_service,
+        slot_processor=slot_processor_service
+    )
+    logger.info("DialogFlowService inicializado.")
+
     # 3.5 Handlers do Telegram (Instância de classe com métodos roteados)
     bot_handlers = TelegramHandlers(
-        data_service=data_service,
+        persistence_service=persistence_service,
         llm_service=llm_service,
         service_finder=service_finder,
-        slot_filling_manager=slot_filling_manager
+        slot_filling_manager=slot_filling_manager,
+        dialog_flow_service=dialog_flow_service
     )
 
     # Criação da Aplicação do Telegram com JobQueue ---
@@ -127,7 +137,7 @@ async def create_main_bot() -> Main:
     # ------------------------->   telegram_app = main_instance.get_telegram_app()   <-------------------------
 
     # Injeta DataService e LLMService, que são usados no start_command
-    telegram_app.bot_data['data_service'] = data_service
+    telegram_app.bot_data['data_service'] = persistence_service
     telegram_app.bot_data['llm_service'] = llm_service
 
     # O contact_handler (receive_contact_info) também precisa de data_service

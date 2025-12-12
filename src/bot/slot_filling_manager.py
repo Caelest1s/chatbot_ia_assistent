@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 from typing import Optional
 from datetime import date, datetime
 
-from src.services.data_service import DataService
+from src.services.persistence_service import PersistenceService
 from src.services.appointment_service import AppointmentService
 
 from src.utils.json_utils import prepare_data_for_json
@@ -21,10 +21,10 @@ class SlotFillingManager:
 
     def __init__(
             self,
-            data_service: DataService,
+            persistence_service: PersistenceService,
             appointment_service: AppointmentService):
 
-        self.data_service = data_service
+        self.persistence_service = persistence_service
         self.appointment_service = appointment_service
 
     async def _ask_for_next_slot(
@@ -40,7 +40,7 @@ class SlotFillingManager:
 
         if next_slot == 'servico_nome':
             # 1. Busca a lista de serviços disponíveis
-            servicos_nomes = await self.data_service.get_available_services_names()
+            servicos_nomes = await self.persistence_service.get_available_services_names()
 
             if servicos_nomes:
                 lista_servicos = "\n".join(
@@ -63,7 +63,7 @@ class SlotFillingManager:
         elif next_slot == 'turno':
             # 1. Obter duração do serviço
             servico_nome = updated_slots['servico_nome']
-            servico_info = await self.data_service.get_service_details_by_name(servico_nome)
+            servico_info = await self.persistence_service.get_service_details_by_name(servico_nome)
 
             if not servico_info:
                 response = MESSAGES['ERROR_SERVICE_NOT_FOUND'].format(
@@ -86,7 +86,7 @@ class SlotFillingManager:
                 )
 
                 # Força o bot a pedir a data novamente, limpando o slot 'data'
-                self.data_service.update_slot_data(
+                self.persistence_service.update_slot_data(
                     update.effective_user.id, 'data', None)
                 await update.message.reply_text(response)
                 return  # Interrompe o fluxo e pede a data novamente
@@ -104,7 +104,7 @@ class SlotFillingManager:
             servico_nome = updated_slots['servico_nome']
 
             # 1. Reobter duração
-            servico_info = await self.data_service.get_service_details_by_name(servico_nome)
+            servico_info = await self.persistence_service.get_service_details_by_name(servico_nome)
             duracao = servico_info['duracao_minutos']
 
             # 2. Obter horários disponíveis para o turno
@@ -121,7 +121,7 @@ class SlotFillingManager:
                 )
 
                 # Força a pedir o turno novamente
-                self.data_service.update_slot_data(
+                self.persistence_service.update_slot_data(
                     update.effective_user.id, ' turno', None)
                 await update.message.reply_text(response)
                 return
@@ -144,10 +144,10 @@ class SlotFillingManager:
         """Gerencia o fluxo principal do Slot Filling, incluindo a resolução de ambiguidades."""
 
         user_id = update.effective_user.id
-        nome = await self.data_service.get_nome_usuario(user_id) or update.effective_user.first_name
+        nome = await self.persistence_service.get_nome_usuario(user_id) or update.effective_user.first_name
 
         # 1. Obtém o estado ATUALIZADO (que já contém os slots limpos e enriquecidos pelo DataService)
-        session_state = await self.data_service.get_session_state(user_id)
+        session_state = await self.persistence_service.get_session_state(user_id)
         current_slots: dict[str, any] = session_state.get('slot_data', {})
         updated_slots = current_slots.copy()
 
@@ -180,11 +180,11 @@ class SlotFillingManager:
             original_term = session_ambiguity.get('original_term', '')
             term_to_search = f"{original_term} {servico_nome_atual}"
 
-            resolved_servicos = await self.data_service.buscar_servicos(term_to_search)
+            resolved_servicos = await self.persistence_service.buscar_servicos(term_to_search)
 
             # Tenta buscar apenas pelo termo curto como fallback (ex: 'feminino' sozinho)
             if not resolved_servicos:
-                resolved_servicos = await self.data_service.buscar_servicos(servico_nome_atual)
+                resolved_servicos = await self.persistence_service.buscar_servicos(servico_nome_atual)
 
             if len(resolved_servicos) == 1:
                 # Ambiguidade RESOLVIDA!
@@ -198,7 +198,7 @@ class SlotFillingManager:
                     "Por favor, diga o nome **exato** do serviço que você viu na lista."
                 )
                 serializable_slots = prepare_data_for_json(updated_slots)
-                await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
+                await self.persistence_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
                 return True
 
         # 3. Verificar slots faltantes
@@ -225,16 +225,16 @@ class SlotFillingManager:
             await update.message.reply_text(response_msg)
 
             if is_successful:
-                await self.data_service.clear_session_state(user_id)
+                await self.persistence_service.clear_session_state(user_id)
             else:
                 # Se falhar, limpamos slots problemáticos ou mantemos o estado
                 serializable_slots = prepare_data_for_json(updated_slots)
-                await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
+                await self.persistence_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
             return True
 
         else:
             # 5. Slots Faltando: Solicitar o Próximo
             serializable_slots = prepare_data_for_json(updated_slots)
-            await self.data_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
+            await self.persistence_service.update_session_state(user_id, current_intent='AGENDAR', slot_data=serializable_slots)
             await self._ask_for_next_slot(update, context, nome, updated_slots, missing_slots)
             return True

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 # Importa o teclado da sua nova UI do Telegram
 from src.platform.telegram.ui.keyboards import get_contact_request_keyboard, get_main_menu_keyboard
 # Importa seu serviço de negócio (mantendo a separação!)
-from src.services.data_service import DataService
+from src.services.persistence_service import PersistenceService
 # Importa o LLMService para limpeza de histórico
 from src.bot.llm_service import LLMService 
 from src.utils.system_message import MESSAGES # Para a mensagem de boas-vindas
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     
     # Define a estrutura de dependências esperada no bot_data
     class BotDataDependencies(dict):
-        data_service: DataService
+        data_service: PersistenceService
         llm_service: LLMService
 
 
@@ -37,7 +37,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Assume-se que DataService e LLMService estão injetados em context.application.bot_data
     # Use context.bot_data se injetar no contexto do bot em vez do application.
     deps = context.application.bot_data # type: BotDataDependencies
-    data_service: DataService = deps['data_service']
+    data_service: PersistenceService = deps['data_service']
     llm_service: LLMService = deps['llm_service']
 
     # 2. ✅ Lógica de Registro e Limpeza

@@ -11,7 +11,7 @@ from src.config.logger import setup_logger
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage  # Apenas para typing
-    from src.services.data_service import DataService
+    from src.services.persistence_service import PersistenceService
 
 logger = setup_logger(__name__)
 
@@ -19,12 +19,12 @@ logger = setup_logger(__name__)
 class LLMService:  # Antiga ai_assistance.py
     """Gerencia a interação direta com a LLM (Extração e Resposta Genérica)."""
 
-    def __init__(self, llm_config: LLMConfig, history_manager: HistoryManager, data_service: 'DataService'):
+    def __init__(self, llm_config: LLMConfig, history_manager: HistoryManager, persistence_service: 'PersistenceService'):
         self.llm_config = llm_config
         self.extraction_prompt = llm_config.extraction_prompt
         self.output_parser = llm_config.output_parser
         self.history_manager = history_manager
-        self.data_service = data_service
+        self.data_service = persistence_service
         self.search_prompt = llm_config.search_prompt  # Mantido se for útil
 
     async def extract_intent_and_data(self, text: str, current_slots: dict | None = None) -> SlotExtraction:

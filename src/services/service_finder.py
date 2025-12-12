@@ -3,7 +3,7 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from src.services.data_service import DataService
+from src.services.persistence_service import PersistenceService
 from src.schemas.slot_extraction_schema import SlotExtraction
 from src.utils.system_message import MESSAGES
 
@@ -16,7 +16,7 @@ class ServiceFinder:
     """
     # Lógica de negócio para buscar serviços no banco de dados
 
-    def __init__(self, data_service: DataService):
+    def __init__(self, data_service: PersistenceService):
         self.data_service = data_service
 
     async def handle_buscar_servicos_estruturado(

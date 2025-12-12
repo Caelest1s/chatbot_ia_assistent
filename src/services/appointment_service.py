@@ -5,7 +5,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from src.services.data_service import DataService
+from src.services.persistence_service import PersistenceService
 from src.schemas.slot_extraction_schema import SlotExtraction
 from src.services.appointment_validator import AppointmentValidator
 
@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 class AppointmentService:
     """Lógica de negócio para a criação de agendamentos."""
 
-    def __init__(self, data_service: DataService, validator: AppointmentValidator):
+    def __init__(self, persistence_service: PersistenceService, validator: AppointmentValidator):
         """Valida se todos os slots necessários estão preenchidos e formatados."""
         # Esta função é presumida como síncrona, pois não acessa o DB.
         # Sua implementação real deve estar em src/services/appointment_validator.py
-        self.data_service = data_service
+        self.persistence_service = persistence_service
         self.validator = validator
 
     async def handle_agendamento_estruturado(
@@ -35,7 +35,7 @@ class AppointmentService:
         Retorna (True, 'Mensagem de sucesso/erro tratada') ou (False, 'Erro interno não tratado').
         """
         user_id = update.effective_user.id
-        nome = self.data_service.get_nome_usuario(
+        nome = self.persistence_service.get_nome_usuario(
             user_id) or update.effective_user.first_name
 
         servico_nome = dados.servico_nome.strip()
@@ -43,7 +43,7 @@ class AppointmentService:
         hora_str = dados.hora
 
         # 1. VALIDAÇÃO DE SERVIÇO (Garante que é unívoco)
-        servicos_encontrados = self.data_service.buscar_servicos(servico_nome)
+        servicos_encontrados = self.persistence_service.buscar_servicos(servico_nome)
         if len(servicos_encontrados) != 1:
             # O SlotFillingManager deveria prevenir isso, mas é uma segurança.
             await update.message.reply_text(MESSAGES['VALIDATION_SERVICE_NOT_FOUND'].format(nome=nome, servico=servico_nome))
@@ -77,14 +77,14 @@ class AppointmentService:
             data_dt = data_hora_agendamento.strftime('%Y-%m-%d')
             hora_dt = data_hora_agendamento.strftime('%H:%M')
 
-            sucesso, mensagem = await self.data_service.inserir_agendamento(
+            sucesso, mensagem = await self.persistence_service.inserir_agendamento(
                 user_id, servico_id, servico_nome, servico_minutos, data_dt, hora_dt)
 
             # A mensagem de sucesso ou falha (ex: horário indisponível) vem do DBManager
             await update.message.reply_text(f'{nome}, {mensagem}')
 
             if sucesso:
-                await self.data_service.clear_session_state(user_id)
+                await self.persistence_service.clear_session_state(user_id)
 
             return True, mensagem
 
@@ -126,7 +126,7 @@ class AppointmentService:
             # Como não temos esse método no DataService, vamos simular a busca:
 
             # Chama o método de busca de serviços (retorna uma lista de dicts)
-            servicos_ativos = await self.data_service.get_available_services_names()
+            servicos_ativos = await self.persistence_service.get_available_services_names()
 
             # Se o servico_id for o NOME, precisamos converter para ID
             if isinstance(servico_id, str):
@@ -165,7 +165,7 @@ class AppointmentService:
             logger.error(f"Erro ao extrair slots normalizados: {e}")
             return False, "Erro ao formatar os dados do agendamento."
         
-        servico = await self.data_service.get_service_details_by_id(servico_id)
+        servico = await self.persistence_service.get_service_details_by_id(servico_id)
         if not servico:
             logger.error(f"Serviço ID {servico_id} não encontrado para agendamento.")
             return False, "O serviço selecionado não está disponível ou não encontrado."
@@ -174,7 +174,7 @@ class AppointmentService:
         servico_minutos = servico.get('duracao_minutos')
 
         # 3. Inserção do Agendamento (Transação final e checagem de conflito DB)
-        success, response_msg = await self.data_service.inserir_agendamento(
+        success, response_msg = await self.persistence_service.inserir_agendamento(
             user_id=user_id,
             servico_id=servico_id,
             servico_nome=servico_nome,
@@ -201,7 +201,7 @@ class AppointmentService:
 
         for shift_name in SHIFT_TIMES.keys():
             # Chamada ao método de cálculo do repositório, filtrando pelo turno
-            horarios_livres = await self.data_service.get_available_blocks_for_shift(
+            horarios_livres = await self.persistence_service.get_available_blocks_for_shift(
                 data=data,
                 duracao_minutos=duracao_minutos,
                 shift_name=shift_name
@@ -216,7 +216,7 @@ class AppointmentService:
         """
         Retorna todos os horários HH:MM livres dentro de um turno específico.
         """
-        horarios = await self.data_service.get_available_blocks_for_shift(
+        horarios = await self.persistence_service.get_available_blocks_for_shift(
             data=data,
             duracao_minutos=duracao_minutos,
             shift_name=turno
