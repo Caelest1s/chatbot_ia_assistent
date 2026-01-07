@@ -1,99 +1,76 @@
 # src/bot/llm_service.ppy
 
-from typing import TYPE_CHECKING
-from telegram import Update
-from telegram.ext import ContextTypes
+from typing import TYPE_CHECKING, Union
+
 from src.bot.history_manager import HistoryManager
 from src.schemas.slot_extraction_schema import SlotExtraction
 from src.bot.llm_config import LLMConfig
-from src.utils.system_message import MESSAGES
 from src.config.logger import setup_logger
 
+from src.utils.constants import BUSINESS_DOMAIN, BUSINESS_NAME
+
 if TYPE_CHECKING:
-    from langchain_core.messages import BaseMessage  # Apenas para typing
     from src.services.persistence_service import PersistenceService
 
 logger = setup_logger(__name__)
 
-
-class LLMService:  # Antiga ai_assistance.py
-    """Gerencia a interação direta com a LLM (Extração e Resposta Genérica)."""
+class LLMService: 
+    """Interface entre o sistema de chat e a inteligência artificial (LangChain)."""
 
     def __init__(self, llm_config: LLMConfig, history_manager: HistoryManager, persistence_service: 'PersistenceService'):
         self.llm_config = llm_config
-        self.extraction_prompt = llm_config.extraction_prompt
-        self.output_parser = llm_config.output_parser
         self.history_manager = history_manager
         self.data_service = persistence_service
-        self.search_prompt = llm_config.search_prompt  # Mantido se for útil
 
-    async def extract_intent_and_data(self, text: str, current_slots: dict | None = None) -> SlotExtraction:
-        """
-        Extrai intenção e slots com MEMÓRIA dos slots já preenchidos.
-        current_slots = dicionário da sessão.
-        """
+    async def process_user_input(self, user_id: int, text: str, missing_slot: str) -> Union[SlotExtraction, str]:
+        """Entrada única para qualquer mensagem do usuário. Orquestrador decide se extrai slots ou se responde uma dúvida."""
         try:
-            # 1. Obter a Chain/Runnable de Extração, injetando a memória (current_slots)
-            # O LLMConfig.get_extraction_chain já cuida da serialização JSON e do prompt.
-            extraction_chain = self.llm_config.get_extraction_chain(current_slots or {})
 
-            # 2. Invocar a Chain com o texto atual do usuário
-            # A chave de entrada aqui é a que foi definida na chain formatada (texto_usuario)
-            dados_estruturados = await extraction_chain.ainvoke({"texto_usuario": text})
-            logger.info(f"Dados extraídos (Pydantic): {dados_estruturados.model_dump()}")
+            # 1. Obtém o Orquestrador (Cérebro)
+            orchestrator = self.llm_config.create_bot_orchestrator(
+                reset_fn=self.data_service.clear_session_state
+                , user_id=user_id
+            )
 
-            # O resultado da chain já é o objeto SlotExtraction parseado
-            return dados_estruturados
-        except Exception as e:
-            logger.error(f"Erro ao extrair slots: {e}", exc_info=True)
-            # Se a extração falhar (como intent=null), retorna GENERICO,
-            # e os slots ficam nulos (data=null, hora=null), permitindo que o SlotFiller continue.
-            # Retorna GENERICO para que o bot possa tratar o erro ou pedir reformulação
-            return SlotExtraction(intent="GENERICO")
+            # 2. Invoca a inteligência, o orquestrador decide se chama a Chain de Extração, Tool ou Conversa Geral
+            response = await orchestrator.ainvoke({
+                "texto_usuario": text
+                , "dominio": BUSINESS_DOMAIN
+                , "nome_negocio": BUSINESS_NAME
+                , "missing_slot": missing_slot
+            })
 
-    async def handle_generico(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-        """Chama a LLM para perguntas genéricas com histórico."""
-        user_id = update.effective_user.id
-        question = update.message.text
-        resposta_do_bot = False
-
-        # Define o nome de fallback caso a busca no DB falhe
-        nome = update._effective_user.first_name
-
-        try:
-            # 1. Adiciona a pergunta do usuário ao histórico (in-memory)
-            self.history_manager.add_message(user_id, question, is_user=True)
-
-            # **Salva a mensagem do usuário no DB ANTES da chamada do LLM.**
-            # Se a LLM falhar, a mensagem do usuário já está registrada.
-            # Usa o novo método com a origem 'user'.
-            await self.data_service.salvar_mensagem(user_id, question, origem='user')
-
-            # 2. Obtém o prompt completo (com histórico e SystemMessage)
-            prompt = self.history_manager.get_prompt(user_id)
-            logger.info(f"Prompt enviado ao LLM (Genérico) para user_id {user_id}")
-
-            # 3. Invoca a LLM
-            response = self.llm_config.llm.invoke(prompt)
-            resposta = response.content.strip()
-            resposta_do_bot = resposta # Guarda a resposta para salvar
-
-            # 4. Adiciona a resposta da IA ao histórico
-            self.history_manager.add_message(user_id, resposta, is_user=False)
-            # **Salva a resposta do bot no DB.**
-            await self.data_service.salvar_mensagem(user_id, resposta, origem='bot')
-
-            await update.message.reply_text(resposta)
-            return True # Retorna True para indicar sucesso/tratamento ANTES resposta
-
-        except Exception as e:
-            logger.error(f"Erro na API da IA em handle_generico para user_id {user_id}: {e}", exc_info=True)
+            # Se a resposta for uma mensagem do LangChain (AIMessage, HumanMessage, etc)
+            if hasattr(response, 'content') and not isinstance(response, str):
+                response = response.content
+            # Se a resposta for um dicionário (comum no LangChain Orquestrador)
+            if isinstance(response, dict):
+                # Tenta pegar o conteúdo da resposta, se não existir, pega o objeto todo
+                response = response.get('output') or response.get('answer') or str(response)
             
-            db_nome = await self.data_service.get_nome_usuario(user_id)
-            if db_nome:
-                nome = db_nome
-
-            # Se a resposta do bot foi gerada, mas o salvamento falhou, 
-            # o bot ainda deve tentar enviar a mensagem de erro (ou a resposta se o erro foi no salvamento do bot).
-            await update.message.reply_text(MESSAGES['GENERAL_ERROR'].format(nome=nome))
-            return False
+            # 3. Se a resposta for uma string (Conversa Geral)
+            # Caso A: Conversa Geral
+            if isinstance(response, str):
+                if not response.strip():
+                    return "Desculpe, não consegui formular uma resposta."
+                return response
+            
+            # 5. Se for um objeto SlotExtraction (Agendamento)
+            # Caso B: Objeto de Extração
+            if isinstance(response, SlotExtraction):
+                logger.info(f"Slots detectados para {user_id}: {response.model_dump()}")
+                return response
+            
+            # Fallback de segurança
+            logger.warning(f"Resposta inesperada. Tipo: {type(response)} Valor {response}")
+            return "Desculpe, tive um problema ao interpretar a resposta."
+        
+        except Exception as e:
+            logger.error(f"Erro no processamento do Orquestrador para {user_id}: {e}", exc_info=True)
+            return "Tive um problema técnico. Podemos tentar novamente em um instante?"
+        
+    # Caso você ainda precise de uma extração pura (sem passar pelo orquestrador completo)
+    async def extract_only(self, user_id: int, text: str) -> SlotExtraction:
+        """Uso específico para quando você tem certeza que quer apenas extrair dados."""
+        filler = self.llm_config.get_filler_chain_for_user(user_id) # Se criar este helper na llm_config
+        return await filler.ainvoke({"texto_usuario": text})

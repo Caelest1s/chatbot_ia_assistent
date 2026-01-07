@@ -42,7 +42,7 @@ class AgendaRepository(BaseRepository[Agenda]):
                                   data_dt: date,
                                   hora_inicio_time: time, 
                                   hora_fim_time: time) -> tuple[Optional[Agenda], Optional[str], str]:
-        """Insere um novo agendamento"""
+        """Insere novo agendamento"""
         novo_agendamento = Agenda(
             user_id=user_id
             , servico_id=servico_id
@@ -53,8 +53,12 @@ class AgendaRepository(BaseRepository[Agenda]):
             , created_at=datetime.now()
         )
 
-        self.session.add(novo_agendamento)
-        await self.session.flush()
-        await self.session.refresh(novo_agendamento)
-
-        return novo_agendamento, servico_nome, "Agendamento pronto para ser confirmado." 
+        try:
+            self.session.add(novo_agendamento)
+            await self.session.flush()
+            await self.session.refresh(novo_agendamento)
+            return novo_agendamento, servico_nome, "Agendamento realizado!" 
+        except Exception as e:
+            # Se houver conflito de horário (UniqueConstraint), o DB barra aqui
+            logger.error(f"Conflito de integridade no banco: {e}")
+            return None, None, "Este horário acabou de ser ocupado. Por favor, escolha outro."

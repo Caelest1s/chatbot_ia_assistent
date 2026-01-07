@@ -69,7 +69,8 @@ async def create_main_bot() -> Main:
     )
     llm_config = LLMConfig(
         openai_api_key=openai_api_key,
-        services_list=services_list
+        services_list=services_list,
+        persistence_service=persistence_service
     )
     llm_service = LLMService(
         llm_config=llm_config,
@@ -83,38 +84,35 @@ async def create_main_bot() -> Main:
     # 3.3 Lógica de Negócios
     validator = AppointmentValidator()
     appointment_service = AppointmentService(
-        persistence_service=persistence_service,
-        validator=validator
+        persistence_service=persistence_service
+        , validator=validator
     )
-    service_finder = ServiceFinder(
-        data_service=persistence_service
-    )
+    service_finder = ServiceFinder(data_service=persistence_service)
 
     # 3.4 Gerenciador de Fluxo
     slot_filling_manager = SlotFillingManager(
-        persistence_service=persistence_service,
-        appointment_service=appointment_service
+        persistence_service=persistence_service
+        , appointment_service=appointment_service
     )
 
-    slot_processor_service = SlotProcessorService(
-        persistence_service=persistence_service,
-    )
+    slot_processor_service = SlotProcessorService(persistence_service=persistence_service)
     logger.info("SlotProcessorService inicializado.")
 
     dialog_flow_service = DialogFlowService(
-        llm_service=llm_service,
-        persistence_service=persistence_service,
-        slot_processor=slot_processor_service
+        llm_service=llm_service
+        , persistence_service=persistence_service
+        , slot_processor_service=slot_processor_service
+        , slot_filling_manager=slot_filling_manager
     )
     logger.info("DialogFlowService inicializado.")
 
     # 3.5 Handlers do Telegram (Instância de classe com métodos roteados)
     bot_handlers = TelegramHandlers(
-        persistence_service=persistence_service,
-        llm_service=llm_service,
-        service_finder=service_finder,
-        slot_filling_manager=slot_filling_manager,
-        dialog_flow_service=dialog_flow_service
+        persistence_service=persistence_service
+        , llm_service=llm_service
+        , service_finder=service_finder
+        , slot_filling_manager=slot_filling_manager
+        , dialog_flow_service=dialog_flow_service
     )
 
     # Criação da Aplicação do Telegram com JobQueue ---
@@ -141,8 +139,5 @@ async def create_main_bot() -> Main:
     telegram_app.bot_data['llm_service'] = llm_service
 
     # O contact_handler (receive_contact_info) também precisa de data_service
-    # (data_service já está injetado acima, mas vale o lembrete)
-
     logger.info("Dependências injetadas no Application.bot_data.")
-
     return main_instance

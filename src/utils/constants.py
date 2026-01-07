@@ -26,8 +26,11 @@ BUSINESS_HOURS = {
 }
 
 # Slots obrigatórios para o Agendamento
-REQUIRED_SLOTS = ["servico_nome", "data", "turno", "hora_inicio"]
+REQUIRED_SLOTS = ["servico_id", "data", "turno", "hora_inicio"]
 
 SHIFT_TIMES = {
     "Manhã": {"inicio": "08:00", "fim": "12:00"}, "Tarde": {"inicio": "12:00", "fim": "18:00"}, "Noite": {"inicio": "18:00", "fim": "22:00"},
 }
+
+BUSINESS_DOMAIN = "Barbearia"
+BUSINESS_NAME = "Caelestis_Barber"

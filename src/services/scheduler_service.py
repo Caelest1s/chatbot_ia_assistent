@@ -95,7 +95,10 @@ class SchedulerService:
         except ValueError:
             return False, "Formato de data ou hora inválido."
         
-        if data_dt < datetime.now().date() or (data_dt == datetime.now().date() and hora_inicio_dt <= datetime.now()):
+        agora = datetime.now()
+        data_hora_pedido = datetime.combine(data_dt, hora_inicio_time)
+
+        if data_hora_pedido < agora:
             return False, "Não é possível agendar para horários passados."
         
         # 2. Validação de Horário Comercial (Business Hours)

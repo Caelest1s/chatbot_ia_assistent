@@ -7,6 +7,7 @@ from src.services.dialog_flow_service import DialogFlowService
 from src.bot.llm_service import LLMService
 from src.services.service_finder import ServiceFinder
 from src.bot.slot_filling_manager import SlotFillingManager
+from src.schemas.slot_extraction_schema import SlotExtraction
 
 from src.utils.system_message import MESSAGES
 from src.config.logger import setup_logger
@@ -176,83 +177,41 @@ class TelegramHandlers:
     #                                       ANSWER
     # ======================================================================================================
     async def answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Roteia a mensagem do usuário para o gerenciador de fluxo apropriado."""
-
+        """Roteia a mensagem do usuário usando o Orquestrador do DialogFlowService."""
         if update.message.text is None:
             return
 
         user_id = update.effective_user.id
         original_question = update.message.text
-        nome = update.effective_user.first_name
+        nome = await self._get_user_name(user_id, update)
 
+        # 1. Garante registro do usuário
         await self._ensure_user_registered(user_id, nome)
 
-        # Variável de controle para saber se a mensagem foi tratada por algum fluxo
-        handled_message = False
+        # 2. INVOCA O ORQUESTRADOR (DialogFlowService)
+        # O DialogFlow agora cuida de salvar a mensagem, processar com a IA, enriquecer slots e fazer o MERGE
+        result = await self.dialog_flow_service.process_llm_response(user_id=user_id, user_message=original_question)
 
-        # 1. 🚨 ORQUESTRAÇÃO DE LLM E PROCESSAMENTO DE SLOTS
-        processed_slots = await self.dialog_flow_service.process_llm_response(
-            user_id=user_id
-            , user_message=original_question
-        )
-
-        # 2. RECUPERA O ESTADO ATUALIZADO DA SESSÃO
-        session_state = await self.persistence_service.get_session_state(user_id)
-        current_intent = session_state.get('current_intent')
-
-        # 3. Prioridade para INTENÇÕES DE INTERRUPÇÃO/COMANDO (Lidas diretamente do DB)
-        if current_intent == 'RESET':
-            return await self.reset(update, context)
+        # 3. TRATAMENTO DE RESPOSTA BASEADO NO RETORNO DO DIALOGFLOW
+        # CASO A: O Orquestrador retornou uma String (Conversa Geral) 
+        if isinstance(result, str):
+            await update.message.reply_text(result)
+            self._set_inactivity_timer(user_id, context)
+            return
         
-        if current_intent == 'SERVICOS':
-            return await self.servicos(update, context)
+        # CASO B: AGENDAMENTO (RESULT É UM DICIONÁRIO DE SLOTS). É agendamento (result é dict com slots)
+        if isinstance(result, dict):
+            # Verificamos a intenção no banco apenas para confirmar o fluxo
+            session_state = await self.persistence_service.get_session_state(user_id)
+            current_intent = session_state.get('current_intent')
 
-        # 🚨 4. Roteamento baseado na Intenção Salva
-        if current_intent == 'AGENDAR':
-            await self.slot_filling_manager.handle_slot_filling(update, context)
-            handled_message = True
-
-        elif current_intent == 'BUSCAR_SERVICO':
-            # 💡 Fluxo para Busca de Serviço: Precisa de um objeto estruturado para o ServiceFinder.
-
-            # Classe Dummy para compatibilidade com o ServiceFinder
-            class DummyStructuredData:
-                def __init__(self, intent, slots):
-                    self.intent = intent
-                    # O service_finder antigo provavelmente espera a busca no campo data_extracao
-                    self.data_extracao = slots 
-
-            # Cria o objeto de compatibilidade
-            dummy_data = DummyStructuredData(current_intent, processed_slots)
-
-            # Executa a busca
-            await self.service_finder.handle_buscar_servicos_estruturado(update, context, dummy_data)
+            if current_intent == 'AGENDAR':
+                # Chama Slot Filling
+                await self.slot_filling_manager.handle_slot_filling(update, context, slots_from_db=result)
+                self._set_inactivity_timer(user_id, context)
+                return
             
-            # 🚨 IMPORTANTE: Limpa a sessão após a busca para não contaminar a próxima conversa
-            await self.persistence_service.clear_session_state(user_id) 
-
-            handled_message = True
-
-        # ===============================================================================================
-        #                   5. Roteamento baseado na Intenção Extraída ou Corrigida
-        # ===============================================================================================
-
-        # 6. Resposta Padrão (GENERICO ou falha no tratamento)
-        elif current_intent == 'GENERICO' or (current_intent is None):
-            await self.llm_service.handle_generico(update, context)
-            handled_message = True
-
-        # ===============================================================================================
-        #                               6. Timer e Fallback Final
-        # ===============================================================================================
-        if handled_message:
-            # SUCESSO: Rearranja o Timer de Inatividade após uma interação bem-sucedida
-            self._set_inactivity_timer(user_id, context)
-        else:
-            # FALLBACK: Se handled_message ainda for False, a mensagem não foi reconhecida por nenhum fluxo.
-            await update.message.reply_text("Desculpe, não entendi o que você quis dizer. Por favor, tente de outra forma.")
-            # O timer de inatividade pode ser setado aqui também, pois é uma resposta final do bot.
-            self._set_inactivity_timer(user_id, context)
-        
-        return True
-    
+        # CASO C: FALLBACK (Se nada acima for atendido)
+        await update.message.reply_text("Desculpe, não entendi. Como posso ajudar?")
+        self._set_inactivity_timer(user_id, context)
+            
