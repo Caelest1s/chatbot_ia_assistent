@@ -7,7 +7,7 @@ from src.schemas.slot_extraction_schema import SlotExtraction
 from src.bot.llm_config import LLMConfig
 from src.config.logger import setup_logger
 
-from src.utils.constants import BUSINESS_DOMAIN, BUSINESS_NAME
+from src.utils.constants import BUSINESS_DOMAIN, BUSINESS_NAME, REQUIRED_SLOTS
 
 if TYPE_CHECKING:
     from src.services.persistence_service import PersistenceService
@@ -22,7 +22,7 @@ class LLMService:
         self.history_manager = history_manager
         self.data_service = persistence_service
 
-    async def process_user_input(self, user_id: int, text: str, missing_slot: str) -> Union[SlotExtraction, str]:
+    async def process_user_input(self, user_id: int, text: str) -> Union[SlotExtraction, str]:
         """Entrada única para qualquer mensagem do usuário. Orquestrador decide se extrai slots ou se responde uma dúvida."""
         try:
 
@@ -32,12 +32,28 @@ class LLMService:
                 , user_id=user_id
             )
 
+            # === CÁLCULO SEGURO DO MISSING_SLOT ===
+            session_state = await self.data_service.get_session_state(user_id)
+
+            # Só entra no modo focado se:
+            # 1. Existe estado de sessão
+            # 2. A intenção atual é explicitamente 'AGENDAR'
+            # 3. Há slots faltando
+            if session_state and session_state.get('current_intent') == 'AGENDAR' and 'slot_data' in session_state:
+                slot_data = session_state.get('slot_data', {})
+                missing_slots = [s for s in REQUIRED_SLOTS if not slot_data.get(s)]
+                next_missing_slot = missing_slots[0] if missing_slots else "NENHUM"
+                logger.debug(f"Modo FOCO ativado - próximo slot: {next_missing_slot}")
+            else:
+                next_missing_slot = "NENHUM"
+                logger.debug("Modo GERAL desativado - sem agendamento em andamento")
+
             # 2. Invoca a inteligência, o orquestrador decide se chama a Chain de Extração, Tool ou Conversa Geral
             response = await orchestrator.ainvoke({
                 "texto_usuario": text
                 , "dominio": BUSINESS_DOMAIN
                 , "nome_negocio": BUSINESS_NAME
-                , "missing_slot": missing_slot
+                , "missing_slot": next_missing_slot
             })
 
             # Se a resposta for uma mensagem do LangChain (AIMessage, HumanMessage, etc)

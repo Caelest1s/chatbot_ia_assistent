@@ -51,24 +51,10 @@ class DialogFlowService:
         session_state = await self._persistence_service.get_session_state(user_id)
         existing_slots = session_state.get('slot_data', {}) or {}
 
-        current_intent = session_state.get('current_intent') # Pode ser None ou 'AGENDAR'
-
-        # =========================================================
-        # DECISÃO: Usar missing_slot apenas se já estamos em agendamento
-        # =========================================================
-        if current_intent == 'AGENDAR':
-            # Identifica o próximo slot faltante
-            missing_slot = await self._slot_filling_manager.get_next_missing_slot(user_id)
-            if missing_slot == "NENHUM":
-                missing_slot = None # Evita string "NENHUM" vazando
-        else:
-            missing_slot = None # Força uso do prompt genérico
-
         # 2. Chama a LLM para extração de slots
         llm_result = await self._llm_service.process_user_input(
             user_id=user_id
             , text=user_message
-            , missing_slot=missing_slot
         )
 
         # 3. Tratamento do resultado e MERGE (CASO AGENDAMENTO)

@@ -195,6 +195,12 @@ class TelegramHandlers:
         # 3. TRATAMENTO DE RESPOSTA BASEADO NO RETORNO DO DIALOGFLOW
         # CASO A: O Orquestrador retornou uma String (Conversa Geral) 
         if isinstance(result, str):
+            session_state = await self.persistence_service.get_session_state(user_id)
+            
+            if session_state and session_state.get('current_intent') == 'AGENDAR':
+                await self.persistence_service.clear_session_state(user_id)
+                logger.info(f"Usuário {user_id} mudou de assunto durante agendamento → estado limpo")
+
             await update.message.reply_text(result)
             self._set_inactivity_timer(user_id, context)
             return
