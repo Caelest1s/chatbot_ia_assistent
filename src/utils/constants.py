@@ -33,4 +33,4 @@ SHIFT_TIMES = {
 }
 
 BUSINESS_DOMAIN = "Barbearia"
-BUSINESS_NAME = "Caelestis_Barber"
+BUSINESS_NAME = "Wesley Barbearia"

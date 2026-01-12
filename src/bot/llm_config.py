@@ -62,15 +62,34 @@ class LLMConfig:
         return (lambda x: x['texto_usuario']) | self.llm_with_tools
     
     def _get_general_chain(self) -> Runnable:
-        system_prompt = (
-            "Você é assistente virtual do {nome_negocio}, "
-            "um negócio de {dominio}. "
-            "Ofereça um atendimento educado, objetivo e profissional. "
-            "Sempre direcione o cliente para as opções de atendimento disponíveis."
+        # Cria uma instância mais "criativa" apenas para a conversa
+        conversational_llm = ChatOpenAI(
+            api_key=self.llm.openai_api_key,
+            model="gpt-4o-mini", 
+            temperature=0.8, 
+            max_completion_tokens=300, 
         )
 
-        prompt_template = ChatPromptTemplate.from_messages([("system", system_prompt), ("human", "{texto_usuario}")])
-        return prompt_template | self.llm
+        """Carrega o prompt da Luna e configura a conversa geral."""
+        # 1. Localização do arquivo
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(current_dir, '../prompts/router/general_chat_prompt.txt')
+        
+        # 2. Leitura do arquivo
+        try:
+            with open(path, 'r', encoding='utf-8') as file:
+                system_instruction = file.read()
+        except Exception as e:
+            logger.error(f"Erro ao carregar general_chat_prompt.txt: {e}")
+            system_instruction = "Olá! Como posso ajudar você hoje?"
+
+        # 3. Chain que gera a resposta conversacional (Voz do Bot)
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", system_instruction),
+            ("human", "{texto_usuario}")
+        ])
+
+        return prompt_template | conversational_llm
     
     def create_bot_orchestrator(self, reset_fn: Callable, user_id: int) -> Runnable:
         """Monta o orquestrador injetando o roteador dinâmico e o especialista em extração."""

@@ -46,12 +46,12 @@ class LLMService:
                 logger.debug(f"Modo FOCO ativado - próximo slot: {next_missing_slot}")
             else:
                 next_missing_slot = "NENHUM"
-                logger.debug("Modo GERAL desativado - sem agendamento em andamento")
+                logger.debug("Modo GERAL ativado - sem agendamento em andamento")
 
             # 2. Invoca a inteligência, o orquestrador decide se chama a Chain de Extração, Tool ou Conversa Geral
             response = await orchestrator.ainvoke({
                 "texto_usuario": text
-                , "dominio": BUSINESS_DOMAIN
+                , "tipo_negocio": BUSINESS_DOMAIN
                 , "nome_negocio": BUSINESS_NAME
                 , "missing_slot": next_missing_slot
             })

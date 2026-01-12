@@ -47,9 +47,5 @@ class SlotFiller:
             return self._prepare_input(input_data, current_slots=current_slots)
 
         # get_slots_fn será chamado em tempo de execução para pegar os dados do BD
-        return (
-            RunnableLambda(prepare_async)
-            | prompt 
-            | self.llm 
-            | self.output_parser
+        return (RunnableLambda(prepare_async) | prompt | self.llm | self.output_parser
         )
